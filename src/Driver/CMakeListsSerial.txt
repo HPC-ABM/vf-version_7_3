@@ -1,0 +1,11 @@
+set(DRIVER_SRC Driver.cpp)
+file( GLOB DRIVER_UTILITIES_SRC Usr_Drivers/*.cpp)
+
+set(lib_type SHARED)
+add_library(Driver ${lib_type} ${DRIVER_SRC} ${DRIVER_SRC})
+
+target_link_libraries(Driver World)
+
+include_directories( ${PROJECT_SOURCE_DIR}/src)
+
+

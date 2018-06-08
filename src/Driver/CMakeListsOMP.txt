@@ -1,0 +1,18 @@
+set(DRIVER_SRC Driver.cpp)
+file( GLOB DRIVER_UTILITIES_SRC Usr_Drivers/*.cpp)
+
+set(lib_type SHARED)
+add_library(Driver ${lib_type} ${DRIVER_SRC} ${DRIVER_SRC})
+
+target_link_libraries(Driver World)
+
+include_directories( ${PROJECT_SOURCE_DIR}/src)
+
+# Added by Nuttiiya
+find_package(OpenMP)
+if (OPENMP_FOUND)
+  set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
+  set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
+  add_definitions(-D_OMP)
+endif()
+

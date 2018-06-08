@@ -1,0 +1,46 @@
+## Files to ignore
+
+#  Root Directory
+CMakeLists.txt
+Makefile
+CMakeCache.txt
+.project
+.cproject
+.DS_Store
+*.cmake
+
+#  Source Directory
+src/Makefile
+!src/CMakeLists.txt
+src/**/*.cmake
+src/**/Makefile
+#src/common.h
+
+# Source Sub-Directories
+src/Agent/CMakeLists.txt
+!src/ArrayChain/CMakeLists.txt
+!src/Diffusion/CMakeLists.txt
+src/ECM/CMakeLists.txt
+!src/FieldVariable/CMakeLists.txt
+!src/Patch/CMakeLists.txt
+!src/Utilities/CMakeLists.txt
+src/World/CMakeLists.txt
+
+#  Lib Files
+**/lib
+lib/libAgent.so
+lib/**/*.so
+lib/**/*.a
+
+#  Executables
+**/bin
+
+#  Scripts
+**/scripts
+
+# Output Files
+**/output
+*.out
+
+#  Others
+**/CMakeFiles
