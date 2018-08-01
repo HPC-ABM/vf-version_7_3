@@ -199,7 +199,7 @@ void Macrophage::cellFunction() {
 
 void Macrophage::mac_cellFunction() {
 	int in = this->index[read_t];
-	int totaldamage = ((Agent::agentWorldPtr)->worldPatch)->numOfEachTypes[damage];
+	int totaldamage = ((Agent::agentWorldPtr)->worldPatch)->numOfEachTypes[pdamage];
 #ifdef OPT_CHEM
 	float patchTNF     = this->agentWorldPtr-> WHWorldChem->getPchem(TNF, in);
 	float patchIL1beta = this->agentWorldPtr-> WHWorldChem->getPchem(IL1beta, in);
@@ -210,43 +210,39 @@ void Macrophage::mac_cellFunction() {
 	float patchIL10    = this->agentWorldPtr->WHWorldChem->pIL10[in];
 #endif		// OPT_CHEM
 
-  /* Unactivated macrophages only move along their preferred gradient if there
-   * is damage. TODO(Kim): Insert ref? */
-	if (totaldamage == 0) {
-		this->wiggle();
-	} else {
+
     /*************************************************************************
      * MOVEMENT                                                              *
      *************************************************************************/
+
 		this->macSniff();
+//		this->wiggle();
 
     /*************************************************************************
      * ACTIVATION                                                            *
      *************************************************************************/
 		/* An unactivated macrophage can be activated if it is in the damage zone.
      * TODO(Kim): Insert ref? */
- float threshold = 0.1;
- int chance2 = 25;
- int chance3 = 10;
-		if (this->agentPatchPtr[in].inDamzone == true) {
 #ifndef CALIBRATION
-			if ((patchTNF + patchIL1beta > patchIL10*threshold)) {  // TODO(Kim): Insert ref?
+		float threshold_fact = 0.1;
+		int chance2 = 25;//25;//25;
+		int chance3 = 10;//10;
+#else
+		float threshold_fact = Macrophage::activation[0];
+		int chance2 = Macrophage::activation[2];
+		int chance3 = Macrophage::activation[3];
+#endif
+
+		if (this->agentPatchPtr[in].inDamzone) {
+			if ((patchTNF + patchIL1beta > patchIL10*threshold_fact)) {  // TODO(Kim): Insert ref?
 				this->macActivation();
 			} else if (patchTNF + patchIL1beta > 0 && rollDice(chance2)) {  // TODO(Kim): Insert ref?
 				this->macActivation();
-			} else if (rollDice(chance3)) {  // TODO(Kim): Insert ref?
-#else  // CALIBRATION
-			if ((patchTNF + patchIL1beta > patchIL10*Macrophage::activation[0])) {  // TODO(Kim): Insert ref?
-				this->macActivation();
-			} else if (patchTNF + patchIL1beta > Macrophage::activation[1] && rollDice(Macrophage::activation[2])) {  // TODO(Kim): Insert ref?
-				this->macActivation();
-			} else if (rollDice(Macrophage::activation[3])) {  // TODO(Kim): Insert ref?
-#endif  // CALIBRATION
-//				cout << " mac activation 3" << endl;
+			} else if (rollDice(chance3)) {
 				this->macActivation();
 			}
 		}
-	}
+
 
   /*************************************************************************
    * DEATH                                                                 *
@@ -365,13 +361,16 @@ void Macrophage::activatedmac_cellFunction() {
 	float patchIL10    = this->agentWorldPtr->WHWorldChem->pIL10[in];
 #endif		// OPT_CHEM
  	//Change in chemicals due to cells. TODO(Kim): INSERT REF?
-  float factor = 0.1;//0.0001;
-  float factorIL1 = 0.097;
-  float factorTNF = 0.85;//0.4;//0.0001;
-  float factorTNF_fHA = 0.1;//100.0;
+  float factor = 0.0005;//0.1;//0.0001;
+  float factorIL1 = 0.0001;//0.01;//0.097;
+  float factorTNF = 0.000001;//0.85;//0.4;//0.0001;
+  float factorTNF_fHA = 0.1;//0.1;//100.0;
+  float factorIL1_fHA = 1.0;
+  float factorIL8_fHA = 1.0;
   float factorIL10 = 0.1;//0.1;
   float factorFGF = 0.0001;
-  float factorTGF = 0.0001;//0.0001;//0.001;
+  float factorTGF = 0.1;//1.0;//0.0001;
+  float factorIL6 = 0.01;//0.0001
 #ifndef CALIBRATION
   float TGFinc = 1.0 + patchTNF + patchIL10;
   float FGFinc = 1.0;
@@ -403,9 +402,9 @@ void Macrophage::activatedmac_cellFunction() {
   if (this->agentWorldPtr->treatmentOption == voicerest) {
     TNFinc  = bTNF*0.05  + (1 + patchTNF + patchIL1beta + factorTNF_fHA*countfHA)/
 		(1 + patchTGF + patchIL10);
-    IL1inc  = bIL1beta*2 + (15 + patchTNF + patchIL1beta*15 + countfHA)/(1 + patchTGF + patchIL10);
+    IL1inc  = bIL1beta*2 + (15 + patchTNF + patchIL1beta*15 + factorIL1_fHA*countfHA)/(1 + patchTGF + patchIL10);
     IL6inc  = bIL6*0.01  + ((1 + patchTNF +patchIL1beta)/(1 + patchIL10));
-    IL8inc  = bIL8*2     + ((10 + patchTNF*5 + patchIL1beta*5 + countfHA)/(1 + patchIL10));
+    IL8inc  = bIL8*2     + ((10 + patchTNF*5 + patchIL1beta*5 + factorIL8_fHA*countfHA)/(1 + patchIL10));
     IL10inc = bIL10*0.01 + (1 + patchIL10*0.1);
   } else if (this->agentWorldPtr->treatmentOption == resonantvoice) {
     TNFinc  = bTNF*0.5 + 2*(1 + patchTNF + patchIL1beta + countfHA + rvis*0.1)/
@@ -549,11 +548,13 @@ void Macrophage::activatedmac_cellFunction() {
    * DEACTIVATION                                                          *
    *************************************************************************/
   /* Activated macrophages might be deactivated once the damage is cleared. TODO(Kim): INSERT REF? */
-	int totaldamage = ((Agent::agentWorldPtr)->worldPatch)->numOfEachTypes[damage];
+	int totaldamage = ((Agent::agentWorldPtr)->worldPatch)->numOfEachTypes[pdamage];
+	int initialdam = (Agent::agentWorldPtr)->getInitialDam();
+	int threshold_dam = (initialdam*0)/10;	// 0% if the initial damage
 #ifndef CALIBRATION
-	if (totaldamage == 0 && rollDice(3)) this->macDeactivation();
+	if (totaldamage <= threshold_dam && rollDice(50)) this->macDeactivation();
 #else  // CALIBRATION
-	if (totaldamage == 0 && rollDice(Macrophage::activation[4])) this->macDeactivation();
+	if (totaldamage <= threshold_dam && rollDice(Macrophage::activation[4])) this->macDeactivation();
 #endif  // CALIBRATION
 
   /*************************************************************************

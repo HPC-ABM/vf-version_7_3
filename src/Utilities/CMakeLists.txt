@@ -1,4 +1,4 @@
-set(UTILITIES_SRC timer.cpp)
+set(UTILITIES_SRC timer.cpp math_utils.cpp)
 file( GLOB USR_UTILITIES_SRC Usr_Utilities/*.cpp)
 
 set(lib_type SHARED)

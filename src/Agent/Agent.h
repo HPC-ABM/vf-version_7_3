@@ -195,7 +195,7 @@ class Agent {
      *
      * Parameters: ECMIndex  -- enumic value of agent_t for ECM protein type
      */
-    int countNeighborECM(int ECMIndex);
+    float countNeighborECM(int ECMIndex);
 
     /*
      * Description:	Moves to neighboring patch with highest concentration of
@@ -222,7 +222,8 @@ class Agent {
 
     /*
      * Description:	Move to a random neighboring patch while respecting rules
-     *              dictating movement between tissue types.
+     *                  dictating movement between tissue types.
+     *                  wiggle() ONLY moves onto a healhty neighbor
      *
      * Return: True if moved successfully, false otherwise.
      *         neighboring patches
@@ -230,6 +231,8 @@ class Agent {
      * Parameters: chemIndex  -- enumic value of chemical_t for chemical type
      */
     void wiggle();
+
+    void wiggle_wound();
 
     bool moveToTarget(int dX, int dY, int dZ, int index);
 

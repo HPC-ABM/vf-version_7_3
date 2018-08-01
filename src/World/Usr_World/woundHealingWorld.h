@@ -228,7 +228,30 @@ class WHWorld: public World {
      *
      * Parameters: void
      */
-    void initializeECM(); 
+    void initializeECM();
+
+    /*
+     * Description: Initializes collagen, elastin polymers and hyaluronan per LP section
+     *
+     * Return: void
+     *
+     * Parameters:  x_begin         -- beginning coordinate of x for this LP section
+     *              x_end           -- end coordinate of x for this LP section
+     *              APc             -- Average collagen concentration for this LP section
+     *              APe             -- Average elastin concentration for this LP section
+     *              APh             -- Average hyaluronan concentration for this LP section
+     *              fractionLP      -- fraction of this section related to the whole LP
+     */
+    void initPolymers(
+            int x_begin,
+            int x_end,
+            float APc,
+            float APe,
+            float APh,
+            float fractionLP);
+    void addCol(int in, float npolymers);
+    void addEla(int in, float npolymers);
+    void addHya(int in, float nh, int multiplier = 1);
 
     /*
      * Description:	Check whether a given patch qualifies as a center for 
@@ -404,6 +427,16 @@ class WHWorld: public World {
      *
      */
     static void setSeed(unsigned s);
+
+    /*
+     * Description: Determines the number of ticks elapsed
+     *
+     * Return: The number of ticks elapsed
+     *
+     * Parameters: void
+     */
+
+    static double getTick();
 
     /*
      * Description:	Converts hours and days into ticks
@@ -608,6 +641,8 @@ class WHWorld: public World {
      * 							count		-- Amount to be set to
      */
     void setECM(int index, ecm_i ecmType, float count);
+    void resetECM(int index, ecm_i ecmType);
+    float getECM(int index, ecm_i ecmType);
 
     void resetECMmap();
 
@@ -774,9 +809,9 @@ class WHWorld: public World {
     /****************************************************************
      * AGGREGRATED STATS                                            *
      ****************************************************************/
-    int totalOC,   totalNC,   totalFC;
-    int totalOE,   totalNE,   totalFE;
-    int totalHA,   totalFHA;
+    float totalOC,   totalNC,   totalFC;
+    float totalOE,   totalNE,   totalFE;
+    float totalHA,   totalFHA;
     int totalCell[p_celltotal];
       
     /****************************************************************

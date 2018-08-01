@@ -42,12 +42,12 @@
 #include "../../Utilities/error_utils.h"
 #include "../../Utilities/input_utils.h"
 #include "../../Utilities/mem_utils.h"
+#include "../../Utilities/math_utils.h"
 
 #include "../../Diffusion/DiffusionHelper.h"
 #include "../../Diffusion/convolutionFFT_common.h"
 
 using namespace std;
-
 
 /********************************************
  * STATIC VARS INITIALIZATIONS              *
@@ -91,7 +91,7 @@ float WHWorld::halfLifes_static[8] = {13, 13, 13, 13, 13, 13, 13, 30};
 
 
 //WHWorld::WHWorld(double length, double width, double height, double plength) {
-  WHWorld::WHWorld(double width, double length, double height, double plength) {
+WHWorld::WHWorld(double width, double length, double height, double plength) {
 #ifdef DEBUG_WORLD
 	// DEBUG
 	maxHAsize = 0;
@@ -136,203 +136,218 @@ float WHWorld::halfLifes_static[8] = {13, 13, 13, 13, 13, 13, 13, 30};
 #endif
 
 #ifdef PROFILE_ECM
-this->ECMrepairTime = 0;
-this->HAlifeTime    = 0;
-this->ECMdangerTime = 0;
-this->ECMscarTime   = 0;
+	this->ECMrepairTime = 0;
+	this->HAlifeTime    = 0;
+	this->ECMdangerTime = 0;
+	this->ECMscarTime   = 0;
 #endif
 
 
-  // Generate random seeds
-  for(int i = 0; i < NUM_THREAD; i++) {
-  	seeds[i] = seed + 17*i;//25234 + 17*i;
-  }
+	// Generate random seeds
+	for(int i = 0; i < NUM_THREAD; i++) {
+		seeds[i] = seed + 17*i;//25234 + 17*i;
+	}
 
-  // Allocate memory for local lists of cell pointers to add
-  for (int i = 0; i < MAX_NUM_THREADS; i++) {
-  	localNewPlats[i] = new vector<Platelet*>;
-  	localNewNeus[i] = new vector<Neutrophil*>;
-  	localNewMacs[i] = new vector<Macrophage*>;
-  	localNewFibs[i] = new vector<Fibroblast*>;
-  }
+	// Allocate memory for local lists of cell pointers to add
+	for (int i = 0; i < MAX_NUM_THREADS; i++) {
+		localNewPlats[i] = new vector<Platelet*>;
+		localNewNeus[i] = new vector<Neutrophil*>;
+		localNewMacs[i] = new vector<Macrophage*>;
+		localNewFibs[i] = new vector<Fibroblast*>;
+	}
 
 
 
-  /********************************************
-   * AGGREGRATED STATS INITIALIZATIONS        *
-   ********************************************/
-  totalOC   = 0, totalNC   = 0, totalFC   = 0;
-  totalOE   = 0, totalNE   = 0, totalFE   = 0;
-  totalHA   = 0, totalFHA  = 0;
-  for(int i = 0; i < p_celltotal; i++)
-	  this->totalCell[i] = 0;
+	/********************************************
+	 * AGGREGRATED STATS INITIALIZATIONS        *
+	 ********************************************/
+	totalOC   = 0, totalNC   = 0, totalFC   = 0;
+	totalOE   = 0, totalNE   = 0, totalFE   = 0;
+	totalHA   = 0, totalFHA  = 0;
+	for(int i = 0; i < p_celltotal; i++)
+		this->totalCell[i] = 0;
 
-  /********************************************
-   * GRID SETUP                               *
-   ********************************************/
-  this->patchlength = plength;
+	/********************************************
+	 * GRID SETUP                               *
+	 ********************************************/
+	this->patchlength = plength;
 
-  // Number of patches in x,y,z dimensions:
-  int nx = width/patchlength;
-  int ny = length/patchlength;
-  int nz = height/patchlength;
-  World::setupGrid(
-  		nx,             // number of grid points (patches) in x dimension
-  		ny,             // number of grid points (patches) in y dimension
-  		nz,             // number of grid points (patches) in z dimension
-  		0.0,            // min coordinates in x
-  		width,          // max corodinates in x
-  		0.0,            // min coordinates in y
-  		length,         // max coordinates in y
-  		0.0,            // min coordinates in z
-  		height          // max coordinates in z
-  );
+	// Number of patches in x,y,z dimensions:
+	int nx = width/patchlength;
+	int ny = length/patchlength;
+	int nz = height/patchlength;
+	World::setupGrid(
+			nx,             // number of grid points (patches) in x dimension
+			ny,             // number of grid points (patches) in y dimension
+			nz,             // number of grid points (patches) in z dimension
+			0.0,            // min coordinates in x
+			width,          // max corodinates in x
+			0.0,            // min coordinates in y
+			length,         // max coordinates in y
+			0.0,            // min coordinates in z
+			height          // max coordinates in z
+	);
 
-  // Read input parameters (chem baseline, wound dimensions, initial cells) from config file
-  int temp = WHWorld::userInput();
-  cout << "length, width, height: " << length << " " << width << " " << height << " " << endl;
-  cout << "nx, ny, nz: " << nx << " " << ny << " " << nz << " " << endl;
+	// Read input parameters (chem baseline, wound dimensions, initial cells) from config file
+	int temp = WHWorld::userInput();
+	cout << "length, width, height: " << length << " " << width << " " << height << " " << endl;
+	cout << "nx, ny, nz: " << nx << " " << ny << " " << nz << " " << endl;
 
-  cout << "   allocating ECM Managers (also Patches) with best-effort first touch" << endl;
-  // Allocate and initialize Patches/ECM
-  util::allocate<Patch>(&(this->worldPatch), nx*ny*nz);
-  util::allocate<ECM>  (&(this->worldECM),   nx*ny*nz);
+	cout << "   allocating ECM Managers (also Patches) with best-effort first touch" << endl;
+	// Allocate and initialize Patches/ECM
+	util::allocate<Patch>(&(this->worldPatch), nx*ny*nz);
+	util::allocate<ECM>  (&(this->worldECM),   nx*ny*nz);
 
-  cout << "worldPatch size: " << (nx)*(ny)*(nz) << endl;
-  cout << "worldECM size: " << (nx)*(ny)*(nz) << endl;
+	cout << "worldPatch size: " << (nx)*(ny)*(nz) << endl;
+	cout << "worldECM size: " << (nx)*(ny)*(nz) << endl;
 
-  /* Try initializing Patches and ECMs with the threads that will access them
-   * later since the default allocation policy on Linux platforms is
-   * first-touch. This is a best-effort implementation, since we cannot
-   * guarantee size of data accessed per thread to be an integer multiple of
-   * page size. */
+	// Define Class static variables and pointers
+	WHWorld::patchpermm = nx/width;
+	Agent::nx = this->nx;
+	Agent::ny = this->ny;
+	Agent::nz = this->nz;
+	Agent::agentWorldPtr = this;
+	Agent::agentPatchPtr = this->worldPatch;
+	Agent::agentECMPtr = this->worldECM;
+	ECM::ECMWorldPtr = this;
+	ECM::ECMPatchPtr = this->worldPatch;
+	Patch::PatchECMPtr = this->worldECM;
+	WHChemical::chemWorldPtr = this;
+
+	/* Try initializing Patches and ECMs with the threads that will access them
+	 * later since the default allocation policy on Linux platforms is
+	 * first-touch. This is a best-effort implementation, since we cannot
+	 * guarantee size of data accessed per thread to be an integer multiple of
+	 * page size. */
+
+	// Maximum number of collagen fibers allowed per patch
+	this->maxFCol = MAX_COL;
+	this->maxChangeFCol = FIB_COL_PROD_RATE/CONV_RATE_COL;
 
 #ifdef MODEL_3D
 #pragma omp parallel for
 #endif
-  for (int iz = 0; iz < nz; iz++) {
+	for (int iz = 0; iz < nz; iz++) {
 #ifndef MODEL_3D
-  #pragma omp parallel for
+#pragma omp parallel for
 #endif
-  	for (int iy = 0; iy < ny; iy++) {
-  		for (int ix = 0; ix < nx; ix++) {
-  			int in = ix + iy*nx + iz*nx*ny;
-  			this->worldECM[in]   = ECM(ix, iy, iz, in);
-  		}
-  	}
-  }
+		for (int iy = 0; iy < ny; iy++) {
+			for (int ix = 0; ix < nx; ix++) {
+				int in = ix + iy*nx + iz*nx*ny;
+				this->worldECM[in]   = ECM(ix, iy, iz, in);
+//				// DEBUG vis
+//				printf("test locks %d\n", in);
+//				this->worldECM[in].addHAs(0.0f, 0.0f);
+			}
+		}
+	}
 
-//#ifdef VISUALIZATION
-  // Allocate memory for ECM map
-  for (int ie = 0; ie < m_ecmtotal; ie++)
-  {
-  	this->ecmMap[ie] = new float[np]();
-  }
+	//#ifdef VISUALIZATION
+	// Allocate memory for ECM map
+	for (int ie = 0; ie < m_ecmtotal; ie++)
+	{
+		this->ecmMap[ie]        = new float[np];
+		this->ecmGradMap[ie]    = new float[np];
+		this->ecmPreProcMap[ie] = new float[np];
+	}
 
-//#endif
+	//#endif
+
+
+	int dlpb = fractionSLP * nx;                  // DLP x bound
+	int ilpb = (fractionSLP + fractionILP) * nx;  // ILP x bound
 
 #ifdef MODEL_3D
 #pragma omp parallel for
 #endif
-  for (int iz = 0; iz < nz; iz++) {
+	for (int iz = 0; iz < nz; iz++) {
 #ifndef MODEL_3D
-  #pragma omp parallel for
+#pragma omp parallel for
 #endif
-  	for (int iy = 0; iy < ny; iy++) {
-  		for (int ix = 0; ix < nx; ix++) {
-  			int in = ix + iy*nx + iz*nx*ny;
-  			this->worldPatch[in] = Patch(ix, iy, iz, in);
-  		}
-  	}
-  }
+		for (int iy = 0; iy < ny; iy++) {
+			for (int ix = 0; ix < nx; ix++) {
+				int in = ix + iy*nx + iz*nx*ny;
+				int lpi = ix < dlpb? lp_di : (ix < ilpb? lp_ii : lp_si);
+				this->worldPatch[in] = Patch(ix, iy, iz, in, lpi);
+			}
+		}
+	}
 
-  // Allocate memory for WHWorldChem
-  this->WHWorldChem = new WHChemical(this->nx, this->ny, this->nz);
+	// Allocate memory for WHWorldChem
+	this->WHWorldChem = new WHChemical(this->nx, this->ny, this->nz);
 
 
-  // Define Class static variables and pointers
-  WHWorld::patchpermm = nx/width;
-  Agent::nx = this->nx;
-  Agent::ny = this->ny;
-  Agent::nz = this->nz;
-  Agent::agentWorldPtr = this;
-  Agent::agentPatchPtr = this->worldPatch;
-  Agent::agentECMPtr = this->worldECM;
-  ECM::ECMWorldPtr = this;
-  ECM::ECMPatchPtr = this->worldPatch;
-  WHChemical::chemWorldPtr = this;
+	/********************************************
+	 * INITIALIZATION SUBROUTINES               *
+	 ********************************************/
+	/* Define initial attributes of patches, damage, ECM, chem and cells
+	 *  based on user defined values (in config file) and traits of native tissue */
+	cerr << "(i0/10) initializePatches ..." << endl;
+	this->initializePatches();
+	cerr << "(i1/10) initializeECM ..." << endl;
+	this->initializeECM();
+	cerr << "(i2/10) initializeChem ..." << endl;
+	this->initializeChem();
+	cerr << "(i3/10) initializeFibroblasts ..." << endl;
+	this->initializeFibroblasts();
+	cerr << "(i4/10) initializeMacrophages ..." << endl;
+	this->initializeMacrophages();
+	cerr << "(i5/10) initializeNeutrophils ..." << endl;
+	this->initializeNeutrophils();
+	cerr << "(i6/10) initializeDamage ..." << endl;
+	this->initializeDamage();
 
-  /********************************************
-   * INITIALIZATION SUBROUTINES               *
-   ********************************************/
-  /* Define initial attributes of patches, damage, ECM, chem and cells
-   *  based on user defined values (in config file) and traits of native tissue */
-  cerr << "(i0/10) initializePatches ..." << endl;
-  this->initializePatches();
-  cerr << "(i1/10) initializeECM ..." << endl;
-  this->initializeECM();
-  cerr << "(i2/10) initializeChem ..." << endl;
-  this->initializeChem();
-  cerr << "(i3/10) initializeFibroblasts ..." << endl;
-  this->initializeFibroblasts();
-  cerr << "(i4/10) initializeMacrophages ..." << endl;
-  this->initializeMacrophages();
-  cerr << "(i5/10) initializeNeutrophils ..." << endl;
-  this->initializeNeutrophils();
-  cerr << "(i6/10) initializeDamage ..." << endl;
-  this->initializeDamage();
-
-  /* Calling update functions to synchronize read and write portion of the
-   * attributes */
-  //WHWorldChe->updateChemCPU();
-  cerr << "(i7/10) updateCellsInitial ..." << endl;
-  this->updateCellsInitial();  // Add cells to list before removal and updates
-  cerr << "(i8/10) updateECMManagers ..." << endl;
-  this->updateECMManagers();
+	/* Calling update functions to synchronize read and write portion of the
+	 * attributes */
+	//WHWorldChe->updateChemCPU();
+	cerr << "(i7/10) updateCellsInitial ..." << endl;
+	this->updateCellsInitial();  // Add cells to list before removal and updates
+	cerr << "(i8/10) updateECMManagers ..." << endl;
+	this->updateECMManagers();
 #ifdef DEBUG_WORLD
-    int nColl = 0;
-    int nElas = 0;
-    int nHA = 0;
-    int nwColl = 0, nwElas = 0;
-    for (int i = 0; i < (nx*ny*nz - 1); i++)
-    {
-        nColl += this->worldECM[i].ncollagen[read_t];
-        nElas += this->worldECM[i].nelastin[read_t];
-        nwColl += this->worldECM[i].ncollagen[write_t];
-        nwElas += this->worldECM[i].nelastin[write_t];
-        nHA += this->worldECM[i].getnHA();
-    }
-    cout << "   NEW collagens: " << nColl << endl;
-    cout << "   NEW elastins: " << nElas << endl;
-    cout << "   NEW wcollagens: " << nwColl << endl;
-    cout << "   NEW welastins: " << nwElas << endl;
-    cout << "   NEW HAs: " << nHA << endl;
+	int nColl = 0;
+	int nElas = 0;
+	int nHA = 0;
+	int nwColl = 0, nwElas = 0;
+	for (int i = 0; i < (nx*ny*nz - 1); i++)
+	{
+		nColl += this->worldECM[i].polymer_col;
+		nElas += this->worldECM[i].polymer_ela;
+		nwColl += this->worldECM[i].polymer_col;
+		nwElas += this->worldECM[i].polymer_ela;
+		nHA += this->worldECM[i].getnHA();
+	}
+	cout << "   NEW collagens: " << nColl << endl;
+	cout << "   NEW elastins: " << nElas << endl;
+	cout << "   NEW wcollagens: " << nwColl << endl;
+	cout << "   NEW welastins: " << nwElas << endl;
+	cout << "   NEW HAs: " << nHA << endl;
 #endif	// DEBUG_WORLD
-  cerr << "(i9/10) updatePatches ..." << endl;
-  this->updatePatches();
+	cerr << "(i9/10) updatePatches ..." << endl;
+	this->updatePatches();
 #ifdef DEBUG_WORLD
-     nColl = 0;
-     nElas = 0;
-     nHA = 0;
-     nwColl = 0, nwElas = 0;
-    for (int i = 0; i < nx*ny*nz; i++)
-    {
-        nColl += this->worldECM[i].ncollagen[read_t];
-        nElas += this->worldECM[i].nelastin[read_t];
-        nwColl += this->worldECM[i].ncollagen[write_t];
-        nwElas += this->worldECM[i].nelastin[write_t];
-        nHA += this->worldECM[i].getnHA();
-    }
-    cout << "-----------------------" << endl;
-    cout << "   NEW collagens: " << nColl << endl;
-    cout << "   NEW elastins: " << nElas << endl;
-    cout << "   NEW wcollagens: " << nwColl << endl;
-    cout << "   NEW welastins: " << nwElas << endl;
-    cout << "   NEW HAs: " << nHA << endl;
+	nColl = 0;
+	nElas = 0;
+	nHA = 0;
+	nwColl = 0, nwElas = 0;
+	for (int i = 0; i < nx*ny*nz; i++)
+	{
+		nColl += this->worldECM[i].polymer_col;
+		nElas += this->worldECM[i].polymer_ela;
+		nwColl += this->worldECM[i].polymer_col;
+		nwElas += this->worldECM[i].polymer_ela;
+		nHA += this->worldECM[i].getnHA();
+	}
+	cout << "-----------------------" << endl;
+	cout << "   NEW collagens: " << nColl << endl;
+	cout << "   NEW elastins: " << nElas << endl;
+	cout << "   NEW wcollagens: " << nwColl << endl;
+	cout << "   NEW welastins: " << nwElas << endl;
+	cout << "   NEW HAs: " << nHA << endl;
 #endif	// DEBUG_WORLD
 
-  this->updateCellStats();
-  cout << "setupGrid complete" << endl;
+	this->updateCellStats();
+	cout << "setupGrid complete" << endl;
 }
 
 WHWorld:: ~WHWorld(){
@@ -347,16 +362,16 @@ WHWorld:: ~WHWorld(){
 	diffusion_helper::deallocConvCtxBuffers(this->chem_cctx);
 	free(this->chem_cctx);
 
-       /**********************
-	* Clear GPUs         *
-	**********************/
-/* 	for (int ig = 0; ig < N_GPU; ig++)
+	/**********************
+	 * Clear GPUs         *
+	 **********************/
+	/* 	for (int ig = 0; ig < N_GPU; ig++)
  	{
    		checkCudaErrors(cudaSetDevice(ig));
    		checkCudaErrors(cudaGetLastError());
    		checkCudaErrors(cudaDeviceReset());
  	}
-*/
+	 */
 #endif
 
 	for (int i = 0; i < MAX_NUM_THREADS; i++) {
@@ -477,8 +492,6 @@ void WHWorld::initializePatches() {
 	this->bmcx = nx - mmToPatch(epithickness); // basement membrane center (in patches)
 	this->bmcy = 0;                         // Basement membrane center y-coordinate (in patches)
 
-	// DEBUG
-
 
 #ifdef MODEL_VOCALFOLD  
 
@@ -508,10 +521,10 @@ void WHWorld::initializePatches() {
 	this->capY.resize(ceil((y_max - y_min)/(intercapYDistance)));
 	cout << "capY #: " << capY.size() << endl;
 
-//	printf("x_max: %f\tepithickness: %f\tbmcx_mm: %f\n", x_max, epithickness, bmcx_mm);
-//	printf("this->bmcx: %d\tmmToPatch(epithickness): %d\n", this->bmcx, mmToPatch(epithickness));
-//	printf("bmcx: %d\tmmToPatch(capRadius): %d\tmmToPatch(intercapXDistance): %d\n", bmcx, mmToPatch(capRadius),
-//			mmToPatch(intercapXDistance));
+	//	printf("x_max: %f\tepithickness: %f\tbmcx_mm: %f\n", x_max, epithickness, bmcx_mm);
+	//	printf("this->bmcx: %d\tmmToPatch(epithickness): %d\n", this->bmcx, mmToPatch(epithickness));
+	//	printf("bmcx: %d\tmmToPatch(capRadius): %d\tmmToPatch(intercapXDistance): %d\n", bmcx, mmToPatch(capRadius),
+	//			mmToPatch(intercapXDistance));
 
 
 #ifdef RAT_VF
@@ -553,20 +566,6 @@ void WHWorld::initializePatches() {
 					this->worldPatch[in].color[read_t] = ctissue;
 					this->worldPatch[in].color[write_t] = ctissue;
 
-#ifdef MODEL_VOCALFOLD
-					// Define Vocal Fold tissue layers
-					if (ix > this->SLPxmin) {       // Superficial LP (SLP)
-						this->worldPatch[in].LP = SLP;
-
-					} else if (ix > this->ILPxmin){	// Intermediate LP (ILP)
-						this->worldPatch[in].LP = ILP;
-
-					} else if (ix > this->DLPxmin){	// Deep LP (ILP)
-						this->worldPatch[in].LP = DLP;
-					} else { 			// Muscle
-						this->worldPatch[in].LP = muscle;
-					}
-#endif
 				}
 			}
 		}
@@ -577,26 +576,26 @@ void WHWorld::initializePatches() {
 	/* Assign patches that are within the capillary radius (capradius) from the
 	 * capillary center coordinate (capX[ixCap], capY[iyCap]) as capillaries. */
 #ifdef RAT_VF
-//	// DEBUG vis
-//	for (int iz = 0; iz < nz; iz++) {
-//		for (int iy = 0; iy < ny; iy++) {
-//			for (int ix = 0; ix < nx; ix++) {
-//
-//				int in = ix + iy*nx + iz*nx*ny;
-//
-//				if (worldPatch[in].type[read_t] == tissue || worldPatch[in].type[read_t] == capillary)
-//					this->setECM(in, m_col, 0.1);
-//
-////				if ((iz == 0) || (iz == (this->nz - 1)))
-////				{
-////					worldPatch[in].type[read_t]   = capillary;
-////					worldPatch[in].type[write_t]  = capillary;
-////					worldPatch[in].color[read_t]  = ccapillary;
-////					worldPatch[in].color[write_t] = ccapillary;
-////				}
-//			}
-//		}
-//	}
+	//	// DEBUG vis
+	//	for (int iz = 0; iz < nz; iz++) {
+	//		for (int iy = 0; iy < ny; iy++) {
+	//			for (int ix = 0; ix < nx; ix++) {
+	//
+	//				int in = ix + iy*nx + iz*nx*ny;
+	//
+	//				if (worldPatch[in].type[read_t] == tissue || worldPatch[in].type[read_t] == capillary)
+	//					this->setECM(in, m_col, 0.1);
+	//
+	////				if ((iz == 0) || (iz == (this->nz - 1)))
+	////				{
+	////					worldPatch[in].type[read_t]   = capillary;
+	////					worldPatch[in].type[write_t]  = capillary;
+	////					worldPatch[in].color[read_t]  = ccapillary;
+	////					worldPatch[in].color[write_t] = ccapillary;
+	////				}
+	//			}
+	//		}
+	//	}
 
 
 	for (int iyCap = 0; iyCap < capY.size(); iyCap ++) {
@@ -646,18 +645,18 @@ void WHWorld::initializePatches() {
 	}
 #endif
 
-//	for (int iz = 0; iz < nz; iz++)
-//	{
-//		for (int iy = 0; iy < ny; iy++){
-//			for (int ix = 0; ix < nx; ix++)
-//			{
-//				int in = ix + iy*nx + iz*nx*ny;
-//				printf("%d, ", worldPatch[in].type[read_t]);
-//			}
-//			printf("\n");
-//		}
-//		printf("\n\n\n");
-//	}
+	//	for (int iz = 0; iz < nz; iz++)
+	//	{
+	//		for (int iy = 0; iy < ny; iy++){
+	//			for (int ix = 0; ix < nx; ix++)
+	//			{
+	//				int in = ix + iy*nx + iz*nx*ny;
+	//				printf("%d, ", worldPatch[in].type[read_t]);
+	//			}
+	//			printf("\n");
+	//		}
+	//		printf("\n\n\n");
+	//	}
 
 
 }
@@ -734,11 +733,11 @@ void WHWorld::initPatchChem()
 					float patchTNF = this->WHWorldChem->getPchem(TNF, in);
 					float patchTGF = this->WHWorldChem->getPchem(TGF, in);
 					float patchFGF = this->WHWorldChem->getPchem(FGF, in);
-					float patchcollagen = this->worldECM[in].fcollagen[read_t];
+					float patchcollagen = this->worldECM[in].fragmnt_col[read_t];
 					float grad = patchIL1 + patchTNF + patchTGF + patchFGF + patchcollagen;
 					this->WHWorldChem->setGrad(FIBgrad, in, patchTGF);  // TODO(Kim): INSERT REF?
 					this->WHWorldChem->setGrad(NEUgrad, in, grad + patchIL6 + patchIL8);  // TODO(Kim): INSERT REF?
-					this->WHWorldChem->setGrad(MACgrad, in, grad + this->worldECM[in].felastin[read_t]);  // TODO(Kim): INSERT REF?
+					this->WHWorldChem->setGrad(MACgrad, in, grad + this->worldECM[in].fragmnt_ela[read_t]);  // TODO(Kim): INSERT REF?
 
 				}
 			}
@@ -763,94 +762,94 @@ void WHWorld::initPatchChem()
 
 
 #pragma omp parallel
-{
-	// local sum
-	double *sum = new double[typesOfBaseChem];
-	for (int ic = 0; ic < typesOfBaseChem; ic++)
 	{
-		sum[ic] = 0.0f;
-	}
+		// local sum
+		double *sum = new double[typesOfBaseChem];
+		for (int ic = 0; ic < typesOfBaseChem; ic++)
+		{
+			sum[ic] = 0.0f;
+		}
 
 #ifdef MODEL_3D
 #pragma omp for
 #endif
-	for (int iz = 0; iz < this->nz; iz++) {
-		/* Try initializing chemicals with the threads that will access them
-		 * later since the default allocation policy on Linux platforms is
-		 * first-touch. This is a best-effort implementation, since we cannot
-		 * guarantee size of data accessed per thread to be an integer multiple
-		 * of page size. */
+		for (int iz = 0; iz < this->nz; iz++) {
+			/* Try initializing chemicals with the threads that will access them
+			 * later since the default allocation policy on Linux platforms is
+			 * first-touch. This is a best-effort implementation, since we cannot
+			 * guarantee size of data accessed per thread to be an integer multiple
+			 * of page size. */
 #ifndef MODEL_3D
 #pragma omp for
 #endif
-		for (int iy = 0; iy < this->ny; iy++) {
-			for (int ix = 0; ix < this->nx; ix++) {
-				int in = ix + iy*nx + iz*nx*ny;
-				this->WHWorldChem->dTNF[in] = 0;
-				this->WHWorldChem->dTGF[in] = 0;
-				this->WHWorldChem->dFGF[in] = 0;
-				this->WHWorldChem->dMMP8[in] = 0;
-				this->WHWorldChem->dIL1beta[in] = 0;
-				this->WHWorldChem->dIL6[in] = 0;
-				this->WHWorldChem->dIL8[in] = 0;
-				this->WHWorldChem->dIL10[in] = 0;
+			for (int iy = 0; iy < this->ny; iy++) {
+				for (int ix = 0; ix < this->nx; ix++) {
+					int in = ix + iy*nx + iz*nx*ny;
+					this->WHWorldChem->dTNF[in] = 0;
+					this->WHWorldChem->dTGF[in] = 0;
+					this->WHWorldChem->dFGF[in] = 0;
+					this->WHWorldChem->dMMP8[in] = 0;
+					this->WHWorldChem->dIL1beta[in] = 0;
+					this->WHWorldChem->dIL6[in] = 0;
+					this->WHWorldChem->dIL8[in] = 0;
+					this->WHWorldChem->dIL10[in] = 0;
 
-				/* Baseline chemical concentrations are initialized in tissue
-				 * epithelium and capillaries */ //TODO(Kim): INSERT REF?
-				// DEBUG rat
-				this->WHWorldChem->pTNF[in] = this->baselineChem[TNF]/countTissue;
-				this->WHWorldChem->pTGF[in] = this->baselineChem[TGF]/countTissue;
-				this->WHWorldChem->pFGF[in] = this->baselineChem[FGF]/countTissue;
-				this->WHWorldChem->pMMP8[in] = this->baselineChem[MMP8]/countTissue;
-				this->WHWorldChem->pIL1beta[in] = this->baselineChem[IL1beta]/countTissue;
-				this->WHWorldChem->pIL6[in] = this->baselineChem[IL6]/countTissue;
-				this->WHWorldChem->pIL8[in] = this->baselineChem[IL8]/countTissue;
-				this->WHWorldChem->pIL10[in] = this->baselineChem[IL10]/countTissue;
+					/* Baseline chemical concentrations are initialized in tissue
+					 * epithelium and capillaries */ //TODO(Kim): INSERT REF?
+					// DEBUG rat
+					this->WHWorldChem->pTNF[in] = this->baselineChem[TNF]/countTissue;
+					this->WHWorldChem->pTGF[in] = this->baselineChem[TGF]/countTissue;
+					this->WHWorldChem->pFGF[in] = this->baselineChem[FGF]/countTissue;
+					this->WHWorldChem->pMMP8[in] = this->baselineChem[MMP8]/countTissue;
+					this->WHWorldChem->pIL1beta[in] = this->baselineChem[IL1beta]/countTissue;
+					this->WHWorldChem->pIL6[in] = this->baselineChem[IL6]/countTissue;
+					this->WHWorldChem->pIL8[in] = this->baselineChem[IL8]/countTissue;
+					this->WHWorldChem->pIL10[in] = this->baselineChem[IL10]/countTissue;
 
-				// Initialize chemical gradient levels that agents are attracted by
-				float patchIL1 = this->WHWorldChem->pIL1beta[in];
-				float patchIL6 =  this->WHWorldChem->pIL6[in];
-				float patchIL8 = this->WHWorldChem->pIL8[in];
-				float patchTNF = this->WHWorldChem->pTNF[in];
-				float patchTGF = this->WHWorldChem->pTGF[in];
-				float patchFGF = this->WHWorldChem->pFGF[in];
-				float patchcollagen = this->worldECM[in].fcollagen[read_t];
-				float grad = patchIL1 + patchTNF + patchTGF + patchFGF + patchcollagen;
+					// Initialize chemical gradient levels that agents are attracted by
+					float patchIL1 = this->WHWorldChem->pIL1beta[in];
+					float patchIL6 =  this->WHWorldChem->pIL6[in];
+					float patchIL8 = this->WHWorldChem->pIL8[in];
+					float patchTNF = this->WHWorldChem->pTNF[in];
+					float patchTGF = this->WHWorldChem->pTGF[in];
+					float patchFGF = this->WHWorldChem->pFGF[in];
+					float patchcollagen = this->worldECM[in].fragmnt_col[read_t];
+					float grad = patchIL1 + patchTNF + patchTGF + patchFGF + patchcollagen;
 
 
-				this->WHWorldChem->pfibgrad[in] = patchTGF;  // TODO(Kim): INSERT REF?
-				this->WHWorldChem->pneugrad[in] = grad + patchIL6 + patchIL8;  // TODO(Kim): INSERT REF?
-				this->WHWorldChem->pmacgrad[in] = grad + this->worldECM[in].felastin[read_t];  // TODO(Kim): INSERT REF?
+					this->WHWorldChem->pfibgrad[in] = patchTGF;  // TODO(Kim): INSERT REF?
+					this->WHWorldChem->pneugrad[in] = grad + patchIL6 + patchIL8;  // TODO(Kim): INSERT REF?
+					this->WHWorldChem->pmacgrad[in] = grad + this->worldECM[in].fragmnt_ela[read_t];  // TODO(Kim): INSERT REF?
 
-				sum[TNF]     += this->WHWorldChem->pTNF[in];
-				sum[TGF]     += this->WHWorldChem->pTGF[in];
-				sum[FGF]     += this->WHWorldChem->pFGF[in];
-				sum[MMP8]    += this->WHWorldChem->pMMP8[in];
-				sum[IL1beta] += this->WHWorldChem->pIL1beta[in];
-				sum[IL6]     += this->WHWorldChem->pIL6[in];
-				sum[IL8]     += this->WHWorldChem->pIL8[in];
-				sum[IL10]    += this->WHWorldChem->pIL10[in];
-				
+					sum[TNF]     += this->WHWorldChem->pTNF[in];
+					sum[TGF]     += this->WHWorldChem->pTGF[in];
+					sum[FGF]     += this->WHWorldChem->pFGF[in];
+					sum[MMP8]    += this->WHWorldChem->pMMP8[in];
+					sum[IL1beta] += this->WHWorldChem->pIL1beta[in];
+					sum[IL6]     += this->WHWorldChem->pIL6[in];
+					sum[IL8]     += this->WHWorldChem->pIL8[in];
+					sum[IL10]    += this->WHWorldChem->pIL10[in];
+
+				}
 			}
 		}
-	}
 #pragma omp critical
-	{
-					//Initialize total chemical concentration
-					this->WHWorldChem->total[TNF]  += sum[TNF];
-					this->WHWorldChem->total[TGF]  += sum[TGF];
-					this->WHWorldChem->total[FGF]  += sum[FGF];
-					this->WHWorldChem->total[MMP8] += sum[MMP8];
-					this->WHWorldChem->total[IL1beta] += sum[IL1beta];
-					this->WHWorldChem->total[IL6] += sum[IL6];
-					this->WHWorldChem->total[IL8] += sum[IL8];
-					this->WHWorldChem->total[IL10] += sum[IL10];
+		{
+			//Initialize total chemical concentration
+			this->WHWorldChem->total[TNF]  += sum[TNF];
+			this->WHWorldChem->total[TGF]  += sum[TGF];
+			this->WHWorldChem->total[FGF]  += sum[FGF];
+			this->WHWorldChem->total[MMP8] += sum[MMP8];
+			this->WHWorldChem->total[IL1beta] += sum[IL1beta];
+			this->WHWorldChem->total[IL6] += sum[IL6];
+			this->WHWorldChem->total[IL8] += sum[IL8];
+			this->WHWorldChem->total[IL10] += sum[IL10];
+		}
 	}
-}
 	cout << "results from inside initialization: " << this->WHWorldChem->total[TNF] << " ";
 	cout << this->WHWorldChem->total[TGF] << " " << this->WHWorldChem->total[FGF];
 	cout << " " << this->WHWorldChem->total[MMP8]
-		<< " " << this->WHWorldChem->total[IL1beta];
+	                                        << " " << this->WHWorldChem->total[IL1beta];
 	cout << " " << this->WHWorldChem->total[IL6] << " ";
 	cout << this->WHWorldChem->total[IL8] << " " << this->WHWorldChem->total[IL10] << endl;
 #endif
@@ -860,7 +859,7 @@ void WHWorld::initializeChemCPU() {
 
 	this->typesOfBaseChem = this->baselineChem.size();
 	this->typesOfChem   	= typesOfBaseChem*2 + 3;
-// DEBUG(*)
+	// DEBUG(*)
 	int countTissue = this->np;//this->countPatchType(tissue);
 	WHWorld::initialTissue = countTissue;
 
@@ -946,19 +945,19 @@ void WHWorld::initKernelConstants(float* lambda,
 void WHWorld::initializeChemGPU() {
 
 #ifdef MODEL_3D
-    diffusion_helper::findGPUs();
-    //DEBUG:
-    printf("++++ in initChemGPU: \n");
-    reportMemUsageGPU();
+	diffusion_helper::findGPUs();
+	//DEBUG:
+	printf("++++ in initChemGPU: \n");
+	reportMemUsageGPU();
 #endif  // MODEL_3D
 
 
 
-    this->typesOfBaseChem = this->baselineChem.size();
-    this->typesOfChem     = typesOfBaseChem*2 + 3;
+	this->typesOfBaseChem = this->baselineChem.size();
+	this->typesOfChem     = typesOfBaseChem*2 + 3;
 
 	const int numChem = this->typesOfBaseChem;
-// DEBUG(*)
+	// DEBUG(*)
 	int countTissue = this->np;//this->countPatchType(tissue);
 	WHWorld::initialTissue = countTissue;
 
@@ -980,9 +979,9 @@ void WHWorld::initializeChemGPU() {
 	diffusion_helper::initKernelDimensions(&kernel_cctx);
 
 	diffusion_helper::initChemDimensions(this->chem_cctx,
-	            kernel_cctx, this->nx, this->ny, this->nz);
-  diffusion_helper::allocKernelBuffers(&kernel_cctx);
-  diffusion_helper::allocChemBuffers(this->chem_cctx, this->WHWorldChem, this->nx, this->ny, this->nz);
+			kernel_cctx, this->nx, this->ny, this->nz);
+	diffusion_helper::allocKernelBuffers(&kernel_cctx);
+	diffusion_helper::allocChemBuffers(this->chem_cctx, this->WHWorldChem, this->nx, this->ny, this->nz);
 
 	diffusion_helper::prepKernel(this->chem_cctx, kernel_cctx, lambda, gamma, numChem);
 
@@ -1004,9 +1003,9 @@ void WHWorld::initializeChemGPU() {
 
 	// Instantiate diffusion manager
 	this->diffuserPtr = new Diffuser(this->typesOfBaseChem,
-	                                    this->chem_cctx,
-	                                    &kernel_cctx,
-	                                    this->WHWorldChem);
+			this->chem_cctx,
+			&kernel_cctx,
+			this->WHWorldChem);
 
 #ifdef OPT_CHEM
 
@@ -1475,10 +1474,8 @@ void WHWorld::initializeECM() {
 	/*******************************************
 	 * COLLAGEN                                *
 	 *******************************************/
-	double collagenGap;
 	int ix;
 
-#ifdef MODEL_VOCALFOLD
 	int ymin = 0;
 	int ymax = ny;
 	int zmin = 0;
@@ -1487,318 +1484,195 @@ void WHWorld::initializeECM() {
 	cout << " ILPxmin, ILPxmax: " << this->ILPxmin << " , " << this->ILPxmax << endl;
 	cout << " DLPxmin, DLPxmax: " << this->DLPxmin << " , " << this->DLPxmax << endl;
 
-	/* ECM (collagen, elastin, HA) fractional area in vocal fold layers (superficial LP (SLP),
-	 * intermediate LP (ILP), deep LP (DLP))
-	 * [1] Hahn, Mariah S., et al. "Quantitative and comparative studies of the vocal fold extracellular
-	 * matrix II: collagen." Annals of Otology, Rhinology & Laryngology 115.3 (2006): 225-232.
-	 * [2] Hahn, Mariah S., et al. "Quantitative and comparative studies of the vocal fold extracellular
-	 * matrix I: elastic fibers and hyaluronic acid." Annals of Otology, Rhinology & Laryngology 115.2 (2006): 156-164.
-	 * NOTE: assume ECM fractional area is proportional to fractional volume for 3D case*/
-	double collagenFracAreaSLP = 0.307;
-	double collagenFracAreaILP = 0.360;
-	double collagenFracAreaDLP = 0.333;
+	int x_begins[lp_total] = {DLPxmin, ILPxmin, SLPxmin};
+	int x_ends  [lp_total] = {ILPxmin, SLPxmin, bmcx};
 
-	// Volume (number of patches) in each SLP, ILP, DLP
-	double volumeSLP = (SLPxmax - SLPxmin)*(ymax - ymin)*(zmax - zmin);
-	double volumeILP = (ILPxmax - ILPxmin)*(ymax - ymin)*(zmax - zmin);
-	double volumeDLP = (DLPxmax - DLPxmin)*(ymax - ymin)*(zmax - zmin);
-	cout << " volumeSLP, ILP, DLP: " << volumeSLP << " , " << volumeILP << " , " << volumeDLP <<endl;
+	float ap_col[lp_total] = {AV_NORM_COL_DLP, AV_NORM_COL_ILP, AV_NORM_COL_SLP};
+	float ap_ela[lp_total] = {AV_NORM_ELA_DLP, AV_NORM_ELA_ILP, AV_NORM_ELA_SLP};
+	float ap_hya[lp_total] = {AV_NORM_HYA_DLP, AV_NORM_HYA_ILP, AV_NORM_HYA_SLP};
 
-	// Volume (number of patches) of ECM (collagen, elastin, HA) in each SLP, ILP, DLP
-	double collagenSLP = collagenFracAreaSLP*volumeSLP;
-	double collagenILP = collagenFracAreaILP*volumeILP;
-	double collagenDLP = collagenFracAreaDLP*volumeDLP;
-	cout << " collagenSLP, ILP, DLP: " << collagenSLP << " , " << collagenILP << " , " << collagenDLP <<endl;
+	float fractionLPs[lp_total] = {fractionDLP, fractionILP, fractionSLP};
 
-	sproutAgentInArea(collagenSLP,                  // Number of agents to sprout
-			tissue,                       // patch type
-			nc,                           // original collagen agent type
-			SLPxmin,                      // lowest x-coordinate agent could be sprouted at
-			SLPxmax,                      // highest x-coordinate agent
-			ymin,                         // lowest y-coordinate
-			ymax,                         // highest y-coordinate
-			zmin,                         // lowest z-coordinate
-			zmax                          // highest z-coordinate
-	);    // collagen in SLP
-	sproutAgentInArea(collagenILP,                  // Number of agents to sprout
-			tissue,                       // patch type
-			nc,                           // original collagen agent type
-			ILPxmin,                      // lowest x-coordinate agent could be sprouted at
-			ILPxmax,                      // highest x-coordinate agent
-			ymin,                         // lowest y-coordinate
-			ymax,                         // highest y-coordinate
-			zmin,                         // lowest z-coordinate
-			zmax                          // highest z-coordinate
-	);    // collagen in ILP
-	sproutAgentInArea(collagenDLP,                  // Number of agents to sprout
-			tissue,                       // patch type
-			nc,                           // original collagen agent type
-			DLPxmin,                      // lowest x-coordinate agent could be sprouted at
-			DLPxmax,                      // highest x-coordinate agent
-			ymin,                         // lowest y-coordinate
-			ymax,                         // highest y-coordinate
-			zmin,                         // lowest z-coordinate
-			zmax                          // highest z-coordinate
-	);    // collagen in DLP
-	cout << "Finished initializing collagens" << endl;
-
-#else
-	// Sprout original collagen on tissue every 0.32mm  // TODO(Kim): INSERT REF?
-	collagenGap = 0.32;             // Spacing between collagen (in mm)
-	ix = this->bmcx - epithickness;
-	for (int iz = 0; iz < nz ; iz++) {
-		for (int iy = 0; iy < ny ; iy++) {
-
-			int in = ix + iy*nx + iz*nx*ny;
-			if ((this->worldPatch[in].type[read_t] == tissue) && (iy%mmToPatch(collagenGap) == 0)) {
-
-				this->worldPatch[in].initcollagen = true;
-				this->worldECM[in].ncollagen[write_t] = this->worldECM[in].ncollagen[read_t] + 1;
-				this->worldECM[in].isEmpty();
-			}
-		}
+	// initialize polymers at different sections of the LP
+	for (int i = 0; i < lp_total; i++) {
+		cout << "begin LP: " << i << endl;
+		this->initPolymers(
+				x_begins[i],
+				x_ends[i],
+				ap_col[i],
+				ap_ela[i],
+				ap_hya[i],
+				fractionLPs[i]);
+		cout << "end LP: " << i << endl;
 	}
-	cout << "Finished initializing collagens" << endl;
-#endif
 
-	/*******************************************
-	 * ELASTIN                                 *
-	 *******************************************/
-#ifdef MODEL_VOCALFOLD
 
-	/* ECM (collagen, elastin, HA) fractional area in vocal fold layers (superficial LP (SLP),
-	 * intermediate LP (ILP), deep LP (DLP))
-	 * [1] Hahn, Mariah S., et al. "Quantitative and comparative studies of the vocal fold extracellular
-	 * matrix II: collagen." Annals of Otology, Rhinology & Laryngology 115.3 (2006): 225-232.
-	 * [2] Hahn, Mariah S., et al. "Quantitative and comparative studies of the vocal fold extracellular
-	 * matrix I: elastic fibers and hyaluronic acid." Annals of Otology, Rhinology & Laryngology 115.2 (2006): 156-164.
-	 * Note: assume ECM fractional area is proportional to fractional volume and same for 2 and 3D case*/
-	double elastinFracAreaSLP = 0.312;
-	double elastinFracAreaILP = 0.354;
-	double elastinFracAreaDLP = 0.335;
+}
 
-	// Volume (number of patches) in each SLP, ILP, DLP
-	volumeSLP = (SLPxmax - SLPxmin)*(ymax - ymin)*(zmax - zmin);
-	volumeILP = (ILPxmax - ILPxmin)*(ymax - ymin)*(zmax - zmin);
-	volumeDLP = (DLPxmax - DLPxmin)*(ymax - ymin)*(zmax - zmin);
+void WHWorld::initPolymers(
+		int x_begin,
+		int x_end,
+		float APc,
+		float APe,
+		float APh,
+		float fractionLP)
+{
+	int np = this->np;
+	int nx = this->nx;
+	int ny = this->ny;
+	int nz = this->nz;
 
-	// Volume (number of patches) of ECM (collagen, elastin, HA) in each SLP, ILP, DLP
-	double elastinSLP = elastinFracAreaSLP*volumeSLP;
-	double elastinILP = elastinFracAreaILP*volumeILP;
-	double elastinDLP = elastinFracAreaDLP*volumeDLP;
-	cout << " elastinSLP, ILP, DLP: " << elastinSLP << " , " << elastinILP << " , " << elastinDLP <<endl;
+	float nc, ne, nh, ncp, nep, nhr;
 
-	sproutAgentInArea(elastinSLP,                  // Number of agents to sprout
-			tissue,                       // patch type
-			ne,                           // original elastin agent type
-			SLPxmin,                      // lowest x-coordinate agent could be sprouted at
-			SLPxmax,                      // highest x-coordinate agent
-			ymin,                         // lowest y-coordinate
-			ymax,                         // highest y-coordinate
-			zmin,                         // lowest z-coordinate
-			zmax                          // highest z-coordinate
-	);    // elastin in SLP
-	sproutAgentInArea(elastinILP,                  // Number of agents to sprout
-			tissue,                       // patch type
-			ne,                           // original elastin agent type
-			ILPxmin,                      // lowest x-coordinate agent could be sprouted at
-			ILPxmax,                      // highest x-coordinate agent
-			ymin,                         // lowest y-coordinate
-			ymax,                         // highest y-coordinate
-			zmin,                         // lowest z-coordinate
-			zmax                          // highest z-coordinate
-	);    // elastin in ILP
-	sproutAgentInArea(elastinDLP,                  // Number of agents to sprout
-			tissue,                       // patch type
-			ne,                           // original elastin agent type
-			DLPxmin,                      // lowest x-coordinate agent could be sprouted at
-			DLPxmax,                      // highest x-coordinate agent
-			ymin,                         // lowest y-coordinate
-			ymax,                         // highest y-coordinate
-			zmin,                         // lowest z-coordinate
-			zmax                          // highest z-coordinate
-	);    // elastin in DLP
-	cout << "Finished initializing elastin" << endl;
-#else
-	// Sprout original elastin at basement membrane on tissue, every 0.24mm
-	double elastinGap = 0.24;              // Spacing between elastin (in mm)
-	ix = this->bmcx - epithickness;
 
-	for (int iy = 0; iy < ny; iy++) {
-		for (int iz = 0; iz < nz; iz++) {
+	unsigned *seed_arr = this->seeds;
 
-			int in = ix + iy*nx + iz*nx*ny;
-			if ((this->worldPatch[in].type[read_t] == tissue) && (iy%mmToPatch(elastinGap) == 0)) {
 
-				this->worldPatch[in].initelastin = true;
-				this->worldECM[in].nelastin[write_t] = this->worldECM[in].nelastin[read_t] + 1;
-				this->worldECM[in].isEmpty();
-			}
-		}
-	}
-	// Store indices of tissue patches not at basement membrane
-	vector <int> patchlist;
-	for (int ix = mmToPatch(0.2); ix < this->bmcx-mmToPatch(0.16); ix++) {  // TODO(Kim): INSERT REF? (Why 0.02 and 0.16?)
-		for (int iy = 0; iy < ny; iy++) {
-			for (int iz = 0; iz < nz; iz++) {
+	printf("x: %d, %d\n", x_begin, x_end);
+	printf("index: %d, %d\n", 0*ny*nx + 0*nx + x_begin, (nz-1)*ny*nx + (ny-1)*nx + x_end);
+	printf("#patches: %d\n", nx*ny*nz);
 
-				int in = ix + iy*nx + iz*nx*ny;
-				if ((this->worldPatch[in].type[read_t] == tissue)) {
-					patchlist.push_back(in);
-				}
-			}
-		}
-	}
-	// Sprout oelastin on 0.04% of tissue patches  // TODO(Kim): INSERT REF?
-	for (int i = 0; i < 0.0004*nx*ny*nz; i++) {
+	// TODO: Generalize
+//	const int nchoices = 5;
+//	float config[nchoices][3] = {
+//			{0.0, 2.0, 1.0},
+//			{0.5, 1.5, 2.0},
+//			{1.0, 1.0, 0.5},
+//			{1.5, 0.0, 1.5},
+//			{2.0, 0.0, 0.0}};
 
-		if (patchlist.size() <=0) continue;
-		int randInt = rand() % patchlist.size();
-		int patchIndex = patchlist[randInt];
-		this->worldPatch[patchIndex].initelastin = true;
-		this->worldECM[patchIndex].nelastin[write_t] = this->worldECM[patchIndex].nelastin[read_t] + 1;
-		this->worldECM[patchIndex].isEmpty();
-	}
-	cout << "Finished initializing elastins" << endl;
-#endif
-	/*******************************************
-	 * HYALURONAN                              *
-	 *******************************************/
+	const int nchoices = 10;
+	float config[nchoices][3] = {
+			{0.0, 0.0, 0.0},
+			{0.0, 2.0, 1.0},
+			{0.0, 0.0, 0.0},
+			{0.0, 1.5, 2.0},
+			{0.0, 0.0, 0.0},
+			{2.0, 1.0, 0.5},
+			{0.0, 0.0, 0.0},
+			{3.0, 0.0, 1.5},
+			{0.0, 0.0, 0.0},
+			{5.0, 0.0, 0.0}};
 
-#ifdef MODEL_VOCALFOLD
-	/*
-	 * ECM (collagen, elastin, HA) fractional area in vocal fold layers (superficial LP (SLP),
-	 * intermediate LP (ILP), deep LP (DLP))
-	 * [1] Hahn, Mariah S., et al. "Quantitative and comparative studies of the vocal fold extracellular
-	 * matrix II: collagen." Annals of Otology, Rhinology & Laryngology 115.3 (2006): 225-232.
-	 * [2] Hahn, Mariah S., et al. "Quantitative and comparative studies of the vocal fold extracellular
-	 * matrix I: elastic fibers and hyaluronic acid." Annals of Otology, Rhinology & Laryngology 115.2 (2006): 156-164.
-	 * Note: assume ECM fractional area is proportional to fractional volume and same for 2 and 3D case
-	 */
-	double HAFracAreaSLP = 0.312;
-	double HAFracAreaILP = 0.354;
-	double HAFracAreaDLP = 0.335;
 
-	// Volume (number of patches) in each SLP, ILP, DLP
-	volumeSLP = (SLPxmax - SLPxmin)*(ymax - ymin)*(zmax - zmin);
-	volumeILP = (ILPxmax - ILPxmin)*(ymax - ymin)*(zmax - zmin);
-	volumeDLP = (DLPxmax - DLPxmin)*(ymax - ymin)*(zmax - zmin);
 
-	// Volume (number of patches) of ECM (collagen, elastin, HA) in each SLP, ILP, DLP
-	double HASLP = HAFracAreaSLP*volumeSLP;
-	double HAILP = HAFracAreaILP*volumeILP;
-	double HADLP = HAFracAreaDLP*volumeDLP;
-	cout << " HASLP, ILP, DLP: " << HASLP << " , " << HAILP << " , " << HADLP <<endl;
-
-	sproutAgentInArea(HASLP,                        // Number of agents to sprout
-			tissue,                       // patch type
-			oha,                          // original collagen agent type
-			SLPxmin,                      // lowest x-coordinate agent could be sprouted at
-			SLPxmax,                      // highest x-coordinate agent
-			ymin,                         // lowest y-coordinate
-			ymax,                         // highest y-coordinate
-			zmin,                         // lowest z-coordinate
-			zmax                          // highest z-coordinate
-	);    // HA in SLP
-	sproutAgentInArea(HAILP,                        // Number of agents to sprout
-			tissue,                       // patch type
-			oha,                          // original collagen agent type
-			ILPxmin,                      // lowest x-coordinate agent could be sprouted at
-			ILPxmax,                      // highest x-coordinate agent
-			ymin,                         // lowest y-coordinate
-			ymax,                         // highest y-coordinate
-			zmin,                         // lowest z-coordinate
-			zmax                          // highest z-coordinate
-	);    // HA in ILP
-	sproutAgentInArea(HADLP,                        // Number of agents to sprout
-			tissue,                       // patch type
-			oha,                          // original collagen agent type
-			DLPxmin,                      // lowest x-coordinate agent could be sprouted at
-			DLPxmax,                      // highest x-coordinate agent
-			ymin,                         // lowest y-coordinate
-			ymax,                         // highest y-coordinate
-			zmin,                         // lowest z-coordinate
-			zmax                          // highest z-coordinate
-	);    // HA in DLP
-	cout << "Finished initializing HA" << endl;
-#ifdef DEBUG_WORLD
-	// DEBUG
-	int nColl = 0;
-	int nElas = 0;
-	int nHA = 0;
-	int nwColl = 0, nwElas = 0;
-	cout << "	checking nHA ..." << endl;
-	for (int i = 0; i < (nx*ny*nz - 1); i++)
+#pragma omp parallel for private(nc, ne, nh, ncp, nep)
+	for (int iz = 0; iz < nz; iz++)
 	{
-		this->worldECM[i].checknHA();
-		nColl += this->worldECM[i].ncollagen[read_t];
-		nElas += this->worldECM[i].nelastin[read_t];
-        nwColl += this->worldECM[i].ncollagen[write_t];
-        nwElas += this->worldECM[i].nelastin[write_t];
-		nHA += this->worldECM[i].getnHA();
-	}
-	cout << "	finished checking nHA" << endl;
-	cout << "NEW collagens: " << nColl << endl;
-	cout << "NEW elastins: " << nElas << endl;
-    cout << "NEW wcollagens: " << nwColl << endl;
-    cout << "NEW welastins: " << nwElas << endl;
-	cout << "NEW HAs: " << nHA << endl;
-#endif // DEBUG_WORLD
-#else
-	// DEBUG
-	// NOTE: Same as NetLogo initialization of HA
-	int HAradius = 5;
-	int HAgap = 1;
-	//    int HAradius = mmToPatch(0.22); 	// 14.667
-	//    int HAgap = mmToPatch(0.04); 		// 2.66
-	int iy, ymin, ymax;
+		for (int iy = 0; iy < ny; iy++)
+		{
+			for (int ix = x_begin; ix < x_end; ix++)
+			{
+				nc = 0.0f;
+				ne = 0.0f;
+				nh = 0.0f;
 
-	/* Find patches which can be a center for sprouting original hyaluronan
-	 * (initHAcenters) using a sweep from right to left (x = nx to x=0). */
-	for (int iz = 0; iz < nz; iz++) {
-		for (int ix = nx - 1; ix >= 0; ix--) {
+				int index = iz*ny*nx + iy*nx + ix;
 
-			ymin = 0;
-			ymax = ny - 1;
-			while (ymin <= ymax ) {
+				int configChoice = util::threadSafeRand(this->seeds)%nchoices;
 
-				int randInt = rand()%2;
 
-				if (randInt == 0) {
-					iy = ymin++;
-				} else if (randInt == 1) {
-					iy = ymax--;
-				}
+				// DEBUG
+				nc = config[configChoice][0]*APc;
+				ne = config[configChoice][1]*APe;
+				nh = config[configChoice][2]*APh;
 
-				// If patch is tissue and qualifies as initHAcenter, sprout 6 HA on patch.  // TODO(Kim): INSERT REF?
-				int in = ix + iy*nx + iz*nx*ny; // Patch row major index
+				// Calculate number of polymers
+				ncp = nc/MAX_MONO_COL;
+				nep = ne/MAX_MONO_ELA;
 
-				if (this->worldPatch[in].type[read_t] != tissue) continue;
+				// Convert HA molecules to relative unit
+				nhr = nh/MAX_MONO_HYA;
 
-				if (initHARadius(ix, iy, iz, HAradius, HAgap) == true) {
-
-					this->initHAcenters.push_back(in);
-					this->worldPatch[in].initHA = true;
-					this->worldECM[in].addHAs(6);
-					/*
-					this->worldECM[in].HA[write_t] = this->worldECM[in].HA[read_t] + 6;
-
-					for (int i = 0; i < 6;i++) {
-#ifdef OPT_ECM
-						this->worldECM[in].HAlife.push_back(100);
-#else
-						this->worldECM[in].HAlife[write_t].push_back(100);
-						this->worldECM[in].HAlife[read_t].push_back(100);
-#endif
-					}
-					 */
-					this->worldECM[in].empty[write_t] = false;
-				}
+				this->addCol(index, ncp);
+				this->addEla(index, nep);
+				this->addHya(index, nhr, 4);
 			}
 		}
 	}
-	cout << "initHA size: " << initHAcenters.size() << endl;
-#endif
+
+}
+
+void WHWorld::addCol(int in, float npolymers)
+{
+	if (npolymers <= 0.0f) return;
+	this->worldPatch[in].initcollagen = true;
+	this->worldECM[in].polymer_col += npolymers;
+
+	// Update ECM polymer map
+	// DEBUG Vis
+//	int iz = worldECM[in].indice[2];
+//	if(iz > (nz/2))
+	  setECM(in, m_col, npolymers);
+}
+
+void WHWorld::addEla(int in, float npolymers)
+{
+	if (npolymers <= 0.0f) return;
+	this->worldPatch[in].initelastin = true;
+	this->worldECM[in].polymer_ela += npolymers;
+
+	// Update ECM polymer map
+	// DEBUG Vis
+	int ix = worldECM[in].indice[0];
+	int iy = worldECM[in].indice[1];
+	int iz = worldECM[in].indice[2];
+	//          if(iz == 72)
+	setECM(in, m_ela, npolymers);
+}
+
+void WHWorld::addHya(int index, float nh, int multiplier)
+{
+
+	if (nh <= 0.0f) return;
+	int in = index;
+
+	int ix = worldECM[in].indice[0];
+	int iy = worldECM[in].indice[1];
+	int iz = worldECM[in].indice[2];
+
+	this->worldPatch[in].initHA = true;
+
+
+	// default HA lifespan = 100 ticks
+	// TODO(NS): ADD REF
+	this->worldECM[in].addHAs(WHWorld::clock + 100, nh);
+	multiplier--;
+
+	// Update ECM polymer map
+	// DEBUG Vis
+	//          if( == 72)
+	setECM(in, m_hya, nh);
+
+
+	for (int i = 0; i < multiplier; i++) {
+		// find a random neighbor
+		int dx = util::threadSafeRand(this->seeds)%2 > 0? +1 : -1;
+		int dy = util::threadSafeRand(this->seeds)%2 > 0? +1 : -1;
+		int dz = util::threadSafeRand(this->seeds)%2 > 0? +1 : -1;
+
+
+		// Update coordinates if not OOB
+		int targetX = ix+dx;
+		int targetY = iy+dy;
+		int targetZ = iz+dz;
+		ix = (0 <= targetX && targetX < nx)? targetX : ix;
+		iy = (0 <= targetY && targetY < ny)? targetY : iy;
+		iz = (0 <= targetZ && targetZ < nz)? targetZ : iz;
+
+		in = iz*ny*nx + iy*nx + ix;
+
+
+		// Add hyaluronan to neighbor
+		this->worldECM[in].addHAs(WHWorld::clock + 100, nh);
+
+		// Update ECM polymer map
+		// DEBUG Vis
+		//          if( == 72)
+		setECM(in, m_hya, nh);
+
+	}
+
 }
 
 
@@ -1834,7 +1708,7 @@ bool WHWorld::initHARadius(int a, int b, int c, double radius, double gap) {
 
 void WHWorld::initializeDamage() {
 	// DEBUG vis
-//	return;
+	//	return;
 	/*************************************
 	 * BUILD WOUND                       *
 	 *************************************/
@@ -1852,14 +1726,14 @@ void WHWorld::initializeDamage() {
 #ifdef MODEL_3D
 	double damZoneArea     = (4.0/3.0)*PI*woundDepth*woundRadiusY*woundRadiusZ; // #patches in damage zone
 #else	// MODEL_3D
-        double damZoneArea     = 0.5*PI*woundDepth*woundRadiusY;
+	double damZoneArea     = 0.5*PI*woundDepth*woundRadiusY;
 #endif	// MODEL_3D
 	double nDamagePatchesD = damZoneArea * damageFraction;
 	int    nDamagePatches  = (int) nDamagePatchesD;
 
 	int initialDamage = 0;
 	this->totaldamage = 0;
-	this->woundX = bmcx - 1;
+	this->woundX = nx - 1;//bmcx - 1;
 	this->woundY = ny/2;
 	vector <int> damzonepatches;
 
@@ -1868,9 +1742,9 @@ void WHWorld::initializeDamage() {
 	 * reservoir; this represents the varying level of damage at each damaged
 	 * patch. */
 	// Old code. No reference.
-//	for (int i = 0; i < nDamagePatches; i++) {
-//		initialDamage += (rand()%5 + 2);
-//	}
+	//	for (int i = 0; i < nDamagePatches; i++) {
+	//		initialDamage += (rand()%5 + 2);
+	//	}
 	// New code. 'woundSeverity'% of patches in damage zone are damaged
 	initialDamage = nDamagePatches;
 
@@ -1884,36 +1758,44 @@ void WHWorld::initializeDamage() {
 #ifdef MODEL_3D
 	for (int iz = woundZ - woundRadiusZ; iz <= woundZ + woundRadiusZ; iz++)
 #else	// MODEL_3D
-        int iz = 0;
+		int iz = 0;
 #endif	// MODEL_3D
-		for (int iy= woundY - woundRadiusY; iy <= woundY + woundRadiusY; iy++){
-			for (int ix= woundX - woundDepth; ix <= woundX; ix++){
-				int in = ix + iy*nx + iz*nx*ny;
+	for (int iy= woundY - woundRadiusY; iy <= woundY + woundRadiusY; iy++){
+		for (int ix= woundX - woundDepth; ix <= woundX; ix++){
+			int in = ix + iy*nx + iz*nx*ny;
 
-				// Try another neighbbor if this one is non-tissue or outside world boundaries
-				if ((ix < 0) || (ix >= nx) || (iy < 0) || (iy >= ny) || (iz < 0) || (iz >= nz)) continue;
-				if (worldPatch[in].type[read_t] != tissue) continue;
+			// Try another neighbbor if this one is non-tissue or outside world boundaries
+			if ((ix < 0) || (ix >= nx) || (iy < 0) || (iy >= ny) || (iz < 0) || (iz >= nz)) continue;
+			if (worldPatch[in].type[read_t] != tissue) continue;
 
-				float a = pow((float) (ix - woundX)/woundDepth, 2.0);
-				float b = pow((float) (iy - woundY)/woundRadiusY, 2.0);
+			float a = pow((float) (ix - woundX)/woundDepth, 2.0);
+			float b = pow((float) (iy - woundY)/woundRadiusY, 2.0);
 #ifdef MODEL_3D
-				float c = pow((float) (iz - woundZ)/woundRadiusZ, 2.0);
+			float c = pow((float) (iz - woundZ)/woundRadiusZ, 2.0);
 #else	// MODEL_3D
-                                float c = 0;
+			float c = 0;
 #endif	// MODEL_3D
-				if (a + b + c <= 1) {
-					worldPatch[in].inDamzone = true;
-					damzonepatches.push_back(in);
-				}
+			if (a + b + c <= 1) {
+				worldPatch[in].inDamzone = true;
+//				if (woundSeverity == 100) worldPatch[in].damage[write_t] = 1;
+				damzonepatches.push_back(in);
 			}
 		}
-
-	for (int i = 0; i < initialDamage; i++) {
-		int randompatch = rand()%damzonepatches.size();
-		reservoir[i] = damzonepatches[randompatch];
 	}
+
 	printf("Wound Spec in cubes:\n\trx: %f\try:%f\trz:%f\tarea:%d\n"
-		,woundDepth, woundRadiusY, woundRadiusZ, damzonepatches.size());
+			,woundDepth, woundRadiusY, woundRadiusZ, damzonepatches.size());
+
+//	if (woundSeverity == 100) {
+//		cout << "Finished building wound" << endl;
+//    return;
+//	} else {
+		for (int i = 0; i < initialDamage; i++) {
+			int randompatch = rand()%damzonepatches.size();
+			reservoir[i] = damzonepatches[randompatch];
+		}
+//	}
+
 	cout << "Finished building wound" << endl;
 	/*************************************
 	 * GENERATE PLATELETS & FRAGMENT ECM *
@@ -1922,11 +1804,11 @@ void WHWorld::initializeDamage() {
 #ifdef MODEL_3D
 	// or LARGE for acute?
 #ifdef RAT_VF
-	    plats = ArrayChain<Platelet*>(DEFAULT_DATA_SMALL, 4, NULL, NULL);
+	plats = ArrayChain<Platelet*>(DEFAULT_DATA_SMALL, 4, NULL, NULL);
 #else
-        plats = ArrayChain<Platelet*>(DEFAULT_DATA_XLARGE, 4, NULL, NULL);
+	plats = ArrayChain<Platelet*>(DEFAULT_DATA_XLARGE, 4, NULL, NULL);
 #endif
-        #else	// MODEL_3D
+#else	// MODEL_3D
 	plats = ArrayChain<Platelet*>(DEFAULT_DATA_SMALL, 4, NULL, NULL);  //WHWorld::destroyPlat);
 #endif	// MODEL_3D
 	Patch* tempPatchPtr;
@@ -1941,8 +1823,10 @@ void WHWorld::initializeDamage() {
 		int iy = worldPatch[in].indice[1];
 		int iz = worldPatch[in].indice[2];
 		worldPatch[in].color[write_t] = cdamage;
-		worldPatch[in].health[write_t] = 0;
-		worldPatch[in].damage[write_t] = worldPatch[in].damage[read_t]++;
+		worldPatch[in].damage[write_t] = worldPatch[in].damage[read_t]+1;
+
+		// DEBUG vis
+		resetECM(in, m_col);
 
 		// Sprout platelet
 		if (this->worldPatch[in].isOccupied() == false) {
@@ -1968,20 +1852,16 @@ void WHWorld::initializeDamage() {
 					// DEBUG vis
 					//setECM(in, m_col, 0);
 
-					if (worldECM[i].empty[write_t] == true) continue;
-					this->worldECM[i].fragmentNCollagen();
-					this->worldECM[i].fragmentNElastin();
-					if(!(this->worldECM[i].checknHAbool())){
-						printf("before fragment\n");
-						exit(-1);
-					}
-					this->worldECM[i].fragmentHA();
+					if (worldECM[i].isEmpty() == true) continue;
+					this->worldECM[i].fragmentCol();
+					this->worldECM[i].fragmentEla();
+					this->worldECM[i].fragmentHA(true);
 				}
 			}
 		}
 
 	}
-	this->totaldamage = this->countPatchType(damage);
+	this->totaldamage = this->countPatchType(pdamage);
 	cout <<  this->totaldamage << " damage created" << endl;
 	cout << plateletcount << " platelets sprouted " << endl;
 	cout << "Finished initializing plats" << endl;
@@ -1990,23 +1870,24 @@ void WHWorld::initializeDamage() {
 
 void WHWorld::updateStats()
 {
-    this->totalOC = 0, this->totalNC = 0, this->totalFC = 0;
-    this->totalOE = 0, this->totalNE = 0, this->totalFE = 0;
-    this->totalHA = 0, this->totalFHA = 0;
+	this->totalOC = 0.0f, this->totalNC = 0.0f, this->totalFC = 0.0f;
+	this->totalOE = 0.0f, this->totalNE = 0.0f, this->totalFE = 0.0f;
+	this->totalHA = 0.0f, this->totalFHA = 0.0f;
 
-    for (int i = 0; i < this->np; i++)
-    {
-        this->totalNC += this->worldECM[i].ncollagen[read_t];
-        this->totalOC += this->worldECM[i].ocollagen[read_t];
-        this->totalFC += this->worldECM[i].fcollagen[read_t];
+	for (int i = 0; i < this->np; i++)
+	{
+		this->totalNC += this->worldECM[i].polymer_col;
+		this->totalOC += this->worldECM[i].monomer_col[read_t];
+		this->totalFC += this->worldECM[i].fragmnt_col[read_t];
 
-        this->totalNE += this->worldECM[i].nelastin[read_t];
-        this->totalOE += this->worldECM[i].oelastin[read_t];
-        this->totalFE += this->worldECM[i].felastin[read_t];
+		this->totalNE += this->worldECM[i].polymer_ela;
+		this->totalOE += this->worldECM[i].monomer_ela[read_t];
+		this->totalFE += this->worldECM[i].fragmnt_ela[read_t];
 
-        this->totalHA += this->worldECM[i].getnHA();
-        this->totalFHA += this->worldECM[i].getnfHA();
-    }
+		this->totalHA += this->worldECM[i].getnHA();
+		this->totalFHA += this->worldECM[i].getnfHA();
+
+	}
 }
 
 void WHWorld::updateCellStats()
@@ -2069,12 +1950,12 @@ int WHWorld::go() {
 	double hours = this->reportHour();
 	double days = this->reportDay();
 
-//	for (int i = 0; i < this->np; i++)
-//	{
-//		// DEBUG vis
-//		if(this->worldPatch[i].getType() == capillary) this->setECM(i, m_col, 0.5);//(ocoll/o_nCollRatio)*1000.0);
-////		if(this->worldPatch[i].isInDamZone()) this->setECM(i, m_col, 0.5);//(ocoll/o_nCollRatio)*1000.0);
-//	}
+	//	for (int i = 0; i < this->np; i++)
+	//	{
+	//		// DEBUG vis
+	//		if(this->worldPatch[i].getType() == capillary) this->setECM(i, m_col, 0.5);//(ocoll/o_nCollRatio)*1000.0);
+	////		if(this->worldPatch[i].isInDamZone()) this->setECM(i, m_col, 0.5);//(ocoll/o_nCollRatio)*1000.0);
+	//	}
 
 	// Profiling options defined in common.h
 #ifdef PROFILE_MAJOR_STEPS
@@ -2225,7 +2106,7 @@ int WHWorld::go() {
 #endif
 
 	// Update totaldamage to be used in the next iteration
-	this->totaldamage = this->countPatchType(damage);
+	this->totaldamage = this->countPatchType(pdamage);
 
 #ifdef PROFILE_ECM
 	cout << "ECM Repair took: 		" << ECMrepairTime << " us" << endl;
@@ -2276,9 +2157,9 @@ int WHWorld::go() {
 void WHWorld::seedCells(float hours) {
 
 	// DEBUG rat
-//	return;
+	//	return;
 #ifdef NO_SECRETION
-  return;
+	return;
 #endif
 
 	int impactStress = -1;
@@ -2422,54 +2303,54 @@ void WHWorld::seedCells(float hours) {
 		if (fmod(hours, tmacSproutingFreq) == 0) {  // Sprout tissue macrophages every 6 hours
 			cout << " every " << tmacSproutingFreq << " hours, sprout "
 					<< tmacSproutingAmount1 * tmacSproutingAmount2 * 2 << " macrophages" << endl;
-//			for (int i = 0; i < tmacSproutingAmount1; i++) {
-//				int iz = rand() % nz;
-				sproutAgentInArea(tmacSproutingAmount1 * tmacSproutingAmount2,
-						tissue,  // TODO(Kim): INSERT REF? (Why tissue?)
-						macrophag,
-						0,  // lowest x-coordinate agent could be sprouted at
-						bmcx,  // TODO(Kim): INSERT REF? (Why bmcx?)
-						0,  // lowest y-coordinate agent could be sprouted at
-						1,  // highest y-coordinate agent could be sprouted at, top of the world
-						0,  // lowest z-coordinate agent could be sprouted at
-						nz - 1,
-						tissue);
-				sproutAgentInArea(tmacSproutingAmount1 * tmacSproutingAmount2,
-						tissue,  // TODO(Kim): INSERT REF? (Why tissue?)
-						macrophag,
-						0,  // lowest x-coordinate agent could be sprouted at
-						bmcx,  // TODO(Kim): INSERT REF? (Why bmcx?)
-						ny - 1,  // TODO(Kim): INSERT REF? (Why ny-1?)
-						ny,
-						0,  // lowest z-coordinate agent could be sprouted at
-						nz - 1,
-						tissue);
-//			}
+			//			for (int i = 0; i < tmacSproutingAmount1; i++) {
+			//				int iz = rand() % nz;
+			sproutAgentInArea(tmacSproutingAmount1 * tmacSproutingAmount2,
+					tissue,  // TODO(Kim): INSERT REF? (Why tissue?)
+					macrophag,
+					0,  // lowest x-coordinate agent could be sprouted at
+					bmcx,  // TODO(Kim): INSERT REF? (Why bmcx?)
+					0,  // lowest y-coordinate agent could be sprouted at
+					1,  // highest y-coordinate agent could be sprouted at, top of the world
+					0,  // lowest z-coordinate agent could be sprouted at
+					nz - 1,
+					tissue);
+			sproutAgentInArea(tmacSproutingAmount1 * tmacSproutingAmount2,
+					tissue,  // TODO(Kim): INSERT REF? (Why tissue?)
+					macrophag,
+					0,  // lowest x-coordinate agent could be sprouted at
+					bmcx,  // TODO(Kim): INSERT REF? (Why bmcx?)
+					ny - 1,  // TODO(Kim): INSERT REF? (Why ny-1?)
+					ny,
+					0,  // lowest z-coordinate agent could be sprouted at
+					nz - 1,
+					tissue);
+			//			}
 		}
 		if (fmod(hours, fibSproutingFreq) == 0) {  // Sprout fibroblasts every 12 hours
 			cout << " every " << fibSproutingFreq << " hours, sprout "
 					<< fibSproutingAmount1 * fibSproutingAmount2 * 2 << " fibroblasts" << endl;
-//			for (int i = 0; i < fibSproutingAmount1; i++) {
-//				int iz = rand() % nz;
-				sproutAgentInArea(fibSproutingAmount1 * fibSproutingAmount2,
-						tissue,  // TODO(Kim): INSERT REF? (Why tissue?)
-						fibroblast,
-						0,  // lowest x-coordinate agent could be sprouted at
-						bmcx,  // TODO(Kim): INSERT REF? (Why bmcx?)
-						0,  // lowest y-coordinate agent could be sprouted at
-						1,  // highest y-coordinate agent could be sprouted at, top of the world
-						0,  // lowest z-coordinate agent could be sprouted at
-						nz - 1);
-				sproutAgentInArea(fibSproutingAmount1 * fibSproutingAmount2,
-						tissue,  // TODO(Kim): INSERT REF? (Why tissue?)
-						fibroblast,
-						0,  // lowest x-coordinate agent could be sprouted at
-						bmcx,  // TODO(Kim): INSERT REF? (Why bmcx?)
-						ny - 1,  // TODO(Kim): INSERT REF? (Why ny-1?), bottom of the world
-						ny,
-						0,  // lowest z-coordinate agent could be sprouted at
-						nz - 1);
-//			}
+			//			for (int i = 0; i < fibSproutingAmount1; i++) {
+			//				int iz = rand() % nz;
+			sproutAgentInArea(fibSproutingAmount1 * fibSproutingAmount2,
+					tissue,  // TODO(Kim): INSERT REF? (Why tissue?)
+					fibroblast,
+					0,  // lowest x-coordinate agent could be sprouted at
+					bmcx,  // TODO(Kim): INSERT REF? (Why bmcx?)
+					0,  // lowest y-coordinate agent could be sprouted at
+					1,  // highest y-coordinate agent could be sprouted at, top of the world
+					0,  // lowest z-coordinate agent could be sprouted at
+					nz - 1);
+			sproutAgentInArea(fibSproutingAmount1 * fibSproutingAmount2,
+					tissue,  // TODO(Kim): INSERT REF? (Why tissue?)
+					fibroblast,
+					0,  // lowest x-coordinate agent could be sprouted at
+					bmcx,  // TODO(Kim): INSERT REF? (Why bmcx?)
+					ny - 1,  // TODO(Kim): INSERT REF? (Why ny-1?), bottom of the world
+					ny,
+					0,  // lowest z-coordinate agent could be sprouted at
+					nz - 1);
+			//			}
 		}
 	}
 }
@@ -2493,7 +2374,7 @@ void WHWorld::diffuseCytokines(float dt) {
 void WHWorld::executePlats() {
 	int platsSize = plats.size(); /* This is only an upper bound on cell list
 	 * size. It is NOT an actual count of cells (some entries are NULL) */
-	//#pragma omp parallel for
+#pragma omp parallel for
 	for (int i = 0; i < platsSize; i++) {
 		Platelet* plat = plats.getDataAt(i);
 		if (!plat) continue;
@@ -2526,7 +2407,7 @@ void WHWorld::executeMacs() {
 void WHWorld::executeFibs() {
 	int fibsSize = fibs.size(); /* This is only an upper bound on cell list
 	 * size. It is NOT an actual count of cells (some entries are NULL) */
-        
+
 #pragma omp parallel for schedule(dynamic, 1000)
 	for (int i = 0; i < fibsSize; i++) {
 		Fibroblast* fib = fibs.getDataAt(i);
@@ -2537,7 +2418,7 @@ void WHWorld::executeFibs() {
 
 void WHWorld::executeCells() {
 	// DEBUG rat
-//	return;
+	//	return;
 
 #ifdef PROFILE_CELL_FUNC
 	TIME_STAGE(this->executePlats(),	"	Cell Function: Platelets",		"	");
@@ -2566,10 +2447,10 @@ void WHWorld::executeECMs(){
 		int sum = 0;
 #pragma omp for schedule(dynamic, 1000)
 		for (int in = 0; in < numPatches; in++) {
-			if (worldECM[in].empty[read_t] == false) {
-				this->worldECM[in].ECMFunction();
-				sum++;
-			}
+			//			if (this->worldECM[in].isEmpty() == false) {
+			this->worldECM[in].ECMFunction();
+			sum++;
+			//			}
 		}
 #ifdef _OMP
 		numNonEmpty[omp_get_thread_num()] = sum;
@@ -2583,8 +2464,8 @@ void WHWorld::executeECMs(){
 
 void WHWorld::requestECMfragments() {
 #ifndef CALIBRATION
-	float TNFthreshold  = 10.0;
-	float MMP8threshold = 10.0;
+	float TNFthreshold  = 1000.0;
+	float MMP8threshold = 1000.0;
 #else	// CALIBRATION
 	float TNFthreshold  = WHWorld::thresholdTNFdamage;
 	float MMP8threshold = WHWorld::thresholdMMP8damage;
@@ -2594,25 +2475,25 @@ void WHWorld::requestECMfragments() {
 		cout << " high TNF damage " << endl;
 		WHWorld::highTNFdamage = false;
 #pragma omp parallel firstprivate(TNFthreshold, MMP8threshold)
-	{
-// DEBUG
-//  printf("[%d] -- 1\n", omp_get_thread_num());
+		{
+			// DEBUG
+			//  printf("[%d] -- 1\n", omp_get_thread_num());
 #pragma omp for
-		for (int in = 0; in < np; in++) {
-			float patchTNF  = this->WHWorldChem->getPchem(TNF,  in);
-			float patchMMP8 = this->WHWorldChem->getPchem(MMP8, in);	// if OPT_CHEM we want to reuse
-			// multiple chems on each patch
-			// as much as possible
-			if (patchTNF > TNFthreshold)
-			{
-				this->worldECM[in].fragmentNCollagen();
-				this->worldECM[in].fragmentNElastin();
-				this->worldECM[in].fragmentHA();
+			for (int in = 0; in < np; in++) {
+				float patchTNF  = this->WHWorldChem->getPchem(TNF,  in);
+				float patchMMP8 = this->WHWorldChem->getPchem(MMP8, in);	// if OPT_CHEM we want to reuse
+				// multiple chems on each patch
+				// as much as possible
+				if (patchTNF > TNFthreshold)
+				{
+					this->worldECM[in].fragmentCol();
+					this->worldECM[in].fragmentEla();
+					this->worldECM[in].fragmentHA(false);
+				}
 			}
+			// DEBUG
+			//  printf("[%d] -- 2\n", omp_get_thread_num());
 		}
-// DEBUG
-//  printf("[%d] -- 2\n", omp_get_thread_num());
-	}
 	}
 
 
@@ -2624,7 +2505,7 @@ void WHWorld::requestECMfragments() {
 		float patchMMP8 = this->WHWorldChem->getPchem(MMP8, in);
 		if (patchMMP8 > MMP8threshold)
 		{
-			this->worldECM[in].fragmentNCollagen();
+			this->worldECM[in].fragmentCol();
 		}
 	}
 	/*
@@ -2698,7 +2579,7 @@ void WHWorld::printChemInfo(){
 }
 void WHWorld::updateChem() {
 
-// HERE (2) MOVE BELOW -- WHWorldChem->update(totaldamage);
+	// HERE (2) MOVE BELOW -- WHWorldChem->update(totaldamage);
 
 	int totaldam = this->totaldamage;//countPatchType(damage);
 
@@ -2712,13 +2593,13 @@ void WHWorld::updateChem() {
 #else		// CALIBRATION
 
 	float cytokineDecay[8] = {	0.319,		// TNF
-					0.00003052,	// TGF
-					0.67,		// FGF
-					0.2,
-					0.2,
-					0.7937,		// IL6
-					0.9284,		// IL8
-					0.2};
+			0.00003052,	// TGF
+			0.67,		// FGF
+			0.2,
+			0.2,
+			0.7937,		// IL6
+			0.9284,		// IL8
+			0.2};
 
 #endif		// CALIBRATION
 
@@ -2769,26 +2650,26 @@ void WHWorld::updateChem() {
 
 void WHWorld::executeAllECMUpdates() {
 
-    int np = this->np;
+	int np = this->np;
 #pragma omp parallel
-{
+	{
 
-//#pragma omp for nowait
+		//#pragma omp for nowait
 #pragma omp for schedule(dynamic, 1000)
-    for (int in = 0; in < np; in++)
-    {
-        this->worldECM[in].updateECM();
-    }
+		for (int in = 0; in < np; in++)
+		{
+			this->worldECM[in].updateECM();
+		}
 
-//#pragma omp for schedule(guided, 1000)
-/*#pragma omp for schedule(dynamic, 1000)
+		//#pragma omp for schedule(guided, 1000)
+		/*#pragma omp for schedule(dynamic, 1000)
     for (int in = 0; in < np; in++)
     {
         this->worldPatch[in].updatePatch();
     }
-*/
-}
-/*
+		 */
+	}
+	/*
 #pragma omp parallel for  
 	for (int iz = 0; iz < nz; iz++) {
 		//#pragma omp parallel for
@@ -2800,7 +2681,7 @@ void WHWorld::executeAllECMUpdates() {
 			}
 		}       
 	}               
-*/
+	 */
 }                       
 
 void WHWorld::executeAllECMResetRequests() {
@@ -2829,12 +2710,12 @@ void WHWorld::updateECMManagers() {
 }                       
 
 void WHWorld::updatePatches() {
-    int np = this->np;
+	int np = this->np;
 #pragma omp parallel for schedule(dynamic, 1000)
-    for (int in = 0; in < np; in++)
-    {
-        this->worldPatch[in].updatePatch();
-    }
+	for (int in = 0; in < np; in++)
+	{
+		this->worldPatch[in].updatePatch();
+	}
 }                       
 
 void WHWorld::updatePlats() {
@@ -3024,45 +2905,81 @@ void WHWorld::updateCells() {
 
 //#ifdef VISUALIZATION
 
-#define ECMfact	2.0f
+float WHWorld::getECM(int index, ecm_i ecmType)
+{
+	return (this->ecmPreProcMap[ecmType][index]);
+}
 
 void WHWorld::incECM(int index, ecm_i ecmType, float count)
 {
-	(this->ecmMap[ecmType][index]) += count/ECMfact;
+	int iz = worldECM[index].indice[2];
+//	float factor;
+
+//	if(iz > (nz/2)+1 || iz < (nz/2)) factor = 0.2;
+//	else factor = 0.7;
+//	if(iz > (nz/2)+1) return;
+
+	float factor2 = 1.5;
+	if (ecmType == m_col) factor2 = 0.9;
+	// if production rate = 2000, change to 1.5
+	// if production rate =  500, change to 6.0
+	// if production rate = 34.5, change to TBD (actual rate)
+//	if (ecmType == m_ela) factor2 = 6.0;
+
+
+//	(this->ecmMap[ecmType][index])          += count/((float) (this->maxFCol));
+//	(this->ecmGradMap[ecmType][index])      += count/((float) (this->maxFCol));//(this->maxChangeFCol));
+//	(this->ecmPreProcMap[ecmType][index])    = factor2*ecmGradMap[ecmType][index];
+//	(this->ecmPreProcMap[ecmType][index])    = RAW_ECM_FACTOR*ecmMap[ecmType][index] + RAW_dECM_FACTOR*ecmGradMap[ecmType][index];
+	(this->ecmPreProcMap[ecmType][index]) += factor2*(count/((float) (this->maxFCol)));
 }
 
 void WHWorld::decECM(int index, ecm_i ecmType, float count)
 {
-	(this->ecmMap[ecmType][index]) -= count/ECMfact;
+	(this->ecmMap[ecmType][index])        -= count/((float) (this->maxFCol));
+	(this->ecmGradMap[ecmType][index])    -= count/((float) (this->maxChangeFCol));
+	//	(this->ecmPreProcMap[ecmType][index])  = RAW_ECM_FACTOR*ecmMap[ecmType][index] + RAW_dECM_FACTOR*ecmGradMap[ecmType][index];
+	(this->ecmPreProcMap[ecmType][index]) -= count/((float) (this->maxFCol));
 }
 
 void WHWorld::setECM(int index, ecm_i ecmType, float count)
 {
-	(this->ecmMap[ecmType][index]) = count/ECMfact;
+	float factor1 = 0.09;//0.4;//0.0001;
+	(this->ecmMap[ecmType][index]) = count/((float) (this->maxFCol));	//1.0;
+	(this->ecmPreProcMap[ecmType][index])    = factor1*ecmMap[ecmType][index];
+}
+
+void WHWorld::resetECM(int index, ecm_i ecmType)
+{
+	(this->ecmMap[ecmType][index])         = 0.0f;
+	(this->ecmGradMap[ecmType][index])     = 0.0f;
+	(this->ecmPreProcMap[ecmType][index])  = 0.0f;
 }
 
 void WHWorld::resetECMmap()
 {
-	std::memset(this->ecmMap[m_col], 0, np * sizeof(float));
+	std::memset(this->ecmMap[m_col],        0, np * sizeof(float));
+	std::memset(this->ecmGradMap[m_col],    0, np * sizeof(float));
+	std::memset(this->ecmPreProcMap[m_col], 0, np * sizeof(float));
 }
 
 //#endif		// VISUALIZATION
 
 
 void WHWorld::getWndPos(
-               int &wnd_xb,
-               int &wnd_xe,
-               int &wnd_yb,
-               int &wnd_ye,
-	       int &wnd_zb,
-               int &wnd_ze)
+		int &wnd_xb,
+		int &wnd_xe,
+		int &wnd_yb,
+		int &wnd_ye,
+		int &wnd_zb,
+		int &wnd_ze)
 {
-  wnd_xb = this->wnd_xb;
-  wnd_xe = this->wnd_xe;
-  wnd_yb = this->wnd_yb;
-  wnd_ye = this->wnd_ye;
-  wnd_zb = this->wnd_zb;
-  wnd_ze = this->wnd_ze;
+	wnd_xb = this->wnd_xb;
+	wnd_xe = this->wnd_xe;
+	wnd_yb = this->wnd_yb;
+	wnd_ye = this->wnd_ye;
+	wnd_zb = this->wnd_zb;
+	wnd_ze = this->wnd_ze;
 }
 
 //NOTE: only use this function to sprout nc, ne in initialization.
@@ -3238,10 +3155,10 @@ void WHWorld::sproutAgentInArea(int num, int patchType, agent_t agentType,
 		int xmin, int xmax, int ymin, int ymax, int zmin, int zmax, int bloodORtiss) {
 
 	// DEBUG vis
-//	return;
+	//	return;
 
-    bool isECM = (oc <= agentType) && (agentType <= fha);
-//	int count = 0, temp = 0;
+	bool isECM = (oc <= agentType) && (agentType <= fha);
+	//	int count = 0, temp = 0;
 	vector <int> patchlist;
 	int *reservoir = new int [num];
 	int *patchesToSprout = NULL;
@@ -3265,7 +3182,7 @@ void WHWorld::sproutAgentInArea(int num, int patchType, agent_t agentType,
 				if (ixx < 0 || ixx >= nx || iyy < 0 || iyy >= ny || izz < 0 || izz >= nz) continue;
 				if (WHWorld::worldPatch[in].type[read_t] != patchType) continue;
 				// DEBUG
-//				temp++;
+				//				temp++;
 				if (this->worldPatch[in].isOccupied() == false) {
 					patchlist.push_back(in);
 				}
@@ -3273,52 +3190,41 @@ void WHWorld::sproutAgentInArea(int num, int patchType, agent_t agentType,
 		}
 	}
 
-//	printf("possible patches: %d\n", temp);
+	//	printf("possible patches: %d\n", temp);
 
 	int nAvailPatches = patchlist.size();
 
-    if (isECM) {
-        if (patchlist.size() < 0) {  // No available patches
-            cerr << "Error: SproutAgent, no available patches within bounds! " << endl;
-            delete[] reservoir;
-            exit(-1);
-        }
+	if (isECM) {
+		cerr << "Should not be using this function for initializing ECMs! " << endl;
+		exit(-1);
+	} else {
+		if (patchlist.size() < num) {  // Not enough available patches
+			cerr << "Error: SproutAgent, not enough available patches within bounds! " << endl;
+			cerr << "   patchlist.size(): " << nAvailPatches << "  num: " << num << endl;
+			cerr << "   bounds x: [" << xmin << ", " << xmax << "]";
+			cerr <<        "   y: [" << ymin << ", " << ymax << "]";
+			cerr <<        "   z: [" << zmin << ", " << zmax << "]" << endl;
+			delete[] reservoir;
+			exit(-1);
+		}
 
-        for (int i = 0; i < num; i++) {
-            int randnumber = rand() % nAvailPatches;
-            reservoir[i] = patchlist[randnumber];  // Prepare 'num' random patches
-        }
+		// Shuffle available patch list
+		std::random_shuffle(patchlist.begin(), patchlist.end());
 
-        patchesToSprout = reservoir;
-
-    } else {
-        if (patchlist.size() < num) {  // Not enough available patches
-            cerr << "Error: SproutAgent, not enough available patches within bounds! " << endl;
-            cerr << "   patchlist.size(): " << nAvailPatches << "  num: " << num << endl;
-            cerr << "   bounds x: [" << xmin << ", " << xmax << "]";
-            cerr <<        "   y: [" << ymin << ", " << ymax << "]";
-            cerr <<        "   z: [" << zmin << ", " << zmax << "]" << endl;
-            delete[] reservoir;
-            exit(-1);
-        }
-
-        // Shuffle available patch list
-        std::random_shuffle(patchlist.begin(), patchlist.end());
-
-        patchesToSprout = &(patchlist[0]);
-    }
+		patchesToSprout = &(patchlist[0]);
+	}
 
 
 	// Sprout agent on each patch in patchesToSprout
-//#pragma omp parallel for
+	//#pragma omp parallel for
 	for (int i = 0; i < num; i++) {
 		int in = patchesToSprout[i];
 		if (in < 0 || in > (nx - 1) + (ny - 1)*nx + (nz - 1)*nx*ny) continue;
 #ifdef NO_CELLS_IN_DAMZONE
 		if (this->worldPatch[in].isInDamZone()) continue; 
 #endif
-//	// NEW DEBUG
-//		if (!isECM && this->worldPatch[in].indice[0] > 100) continue;
+		//	// NEW DEBUG
+		//		if (!isECM && this->worldPatch[in].indice[0] > 100) continue;
 
 		switch (agentType) {
 
@@ -3402,52 +3308,6 @@ void WHWorld::sproutAgentInArea(int num, int patchType, agent_t agentType,
 #endif
 			this->worldPatch[in].setOccupied();
 			this->worldPatch[in].occupiedby[write_t] = neutrophil;
-			break;
-		}
-		case oc: {
-			this->worldECM[in].ocollagen[write_t] = this->worldECM[in].ocollagen[read_t] + 1;
-			this->worldECM[in].isEmpty();
-			break;
-		}
-		case oe: {
-			this->worldECM[in].oelastin[write_t] = this->worldECM[in].oelastin[read_t] + 1;
-			this->worldECM[in].isEmpty();
-			break;
-		}
-		case nc: {
-			this->worldPatch[in].initcollagen = true;
-			this->worldECM[in].ncollagen[write_t] = this->worldECM[in].ncollagen[read_t] + 1;
-			this->worldECM[in].isEmpty();
-#ifdef VISUALIZATION
-			// Update ECM polymer map
-			// DEBUG Vis
-			int ix = worldECM[in].indice[0];
-			int iy = worldECM[in].indice[1];
-			int iz = worldECM[in].indice[2];
-//			if(iz == 14)
-				setECM(in, m_col, ECMfact);
-#endif	// VISUALIZATION
-			break;
-		}
-		case ne: {
-			this->worldPatch[in].initelastin = true;
-			this->worldECM[in].nelastin[write_t] = this->worldECM[in].nelastin[read_t] + 1;
-			this->worldECM[in].isEmpty();
-#ifdef VISUALIZATION
-			// Update ECM polymer map
-			incECM(in, m_ela, 2);
-#endif	// VISUALIZATION
-			break;
-		}
-		case oha: {
-			this->initHAcenters.push_back(in);
-			this->worldPatch[in].initHA = true;
-			this->worldECM[in].addHAs(6);
-			this->worldECM[in].empty[write_t] = false;
-#ifdef VISUALIZATION
-			// Update ECM polymer map
-			incECM(in, m_hya, 6);
-#endif	// VISUALIZATION
 			break;
 		}
 
@@ -3614,10 +3474,10 @@ void WHWorld::sproutAgentInWorld(int num, int patchType, int agentType, bool blo
 			int tid = omp_get_thread_num();
 			this->localNewNeus[tid]->push_back(newNeu)
 #else
-						if (!this->neus.addData(newNeu, DEFAULT_TID)) {
-							cerr << "Error: Could not add neutrophil in sproutAgentInWorld()" << endl;
-							exit(-1);
-						}
+								if (!this->neus.addData(newNeu, DEFAULT_TID)) {
+									cerr << "Error: Could not add neutrophil in sproutAgentInWorld()" << endl;
+									exit(-1);
+								}
 #endif
 			//			this->worldPatch[reservoir[i]].occupied = true;
 			this->worldPatch[reservoir[i]].setOccupied();
@@ -3648,7 +3508,7 @@ int WHWorld::countPatchType(int whichType) {
 			}
 			Patch::numOfEachTypes [whichType] += currCount;
 		}
-	} else if (whichType == damage) {
+	} else if (whichType == pdamage) {
 		Patch::numOfEachTypes[whichType] = 0;
 		for (int iz = 0; iz < this->nz; iz++) {
 			int currCount = 0;
@@ -3661,8 +3521,10 @@ int WHWorld::countPatchType(int whichType) {
 			}
 			Patch::numOfEachTypes [whichType] += currCount;
 		}
-	} else
+	} else {
 		cout << "type must be 1, 2 , 3 or 4!" << endl;
+		exit(-1);
+	}
 	return Patch::numOfEachTypes[whichType];
 }
 
@@ -3682,6 +3544,10 @@ void WHWorld::setSeed(unsigned s) {
 
 double WHWorld::reportHour() {
 	return (WHWorld::clock)/2;
+}
+
+double WHWorld::getTick() {
+	return WHWorld::clock;
 }
 
 double WHWorld::reportDay() {

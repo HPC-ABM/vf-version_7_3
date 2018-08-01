@@ -32,6 +32,8 @@
 
 using namespace std;
 
+class ECM;
+
 /*
  * PATCH CLASS DESCRIPTION:
  * The Patch class manages Patches (grid points in the world). 
@@ -62,8 +64,9 @@ class Patch {
      *             y      -- Position of patch in y dimension
      *             z      -- Position of patch in z dimension
      *             index  -- Patch row major index
+     *             lpi    -- LP section index
      */
-    Patch(int x, int y, int z, int index);
+    Patch(int x, int y, int z, int index, int lpi);
 
     /* 
      * Description:     Copy contructor
@@ -175,6 +178,8 @@ class Patch {
 
     bool isDamaged();
 
+    bool isHealthy();
+
     bool isInDamZone();
 
     /*
@@ -240,6 +245,8 @@ class Patch {
     int indice[3];
     // Used to store the patch row major index
     int index;
+    // LP section index
+    int lpi;
     // Whether the patch is part of the damaged zone of tissue
     bool inDamzone;
     // Whether the patch can be a center for sprouting original hyaluronan
@@ -255,18 +262,12 @@ class Patch {
 
     // Keeps track of type of tissue on patch at beginning and end of each tick
     int type[2];
-#ifdef MODEL_VOCALFOLD
-    // If tissue (lamina propria), superficial LP =1, intermediate LP =2, deep LP = 3
-    int LP; 
-#endif
+
 //#ifdef PARAVIEW_RENDERING
     /* Keeps track of the color of the patch (either from an agent or tissue) 
      * at the beginning and end of each tick */
     int color[2];
 //#endif
-    /* Keeps track of the health of the patch (0 or 100) at the beginning and 
-     * end of each tick */
-    float health[2];
     /* Keeps track of the damage on the patch (0 to the max number of 
      * fragmented ECM proteins) at the beginning and end of each tick */
     unsigned int damage[2];
@@ -279,6 +280,14 @@ class Patch {
     /*************************************************************************
      * STATIC ATTRIBUTES                                                     *
      *************************************************************************/
+    // Pointer to array of all ECM managers in the world
+    static ECM* PatchECMPtr;
+    // Array of normal levels of collagen in different LP sections
+    static float NormCol[lp_total];
+    // Array of normal levels of elastin in different LP sections
+    static float NormEla[lp_total];
+    // Array of normal levels of hyaluronans in different LP sections
+    static float NormHya[lp_total];
     /* Keeps track of the number of patches of each type. Indexed according to the
      * enumic values of patches_t (0: blood, 1:tissue, 2:epithelium, 3:capillary,
      * 4:damage) */

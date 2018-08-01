@@ -20,6 +20,13 @@ char** visualization::argv        = NULL;
 bool visualization::visDone = false;
 #endif
 
+#ifdef TIME_GL
+#define TIME_BUFFER_SIZE    24
+long gl_time[TIME_BUFFER_SIZE];
+long go_time[TIME_BUFFER_SIZE];
+long total_time[TIME_BUFFER_SIZE];
+#endif
+
 float visualization::totalChem[MAX_PLOTS] = {0.0};
 float visualization::totalCell[MAX_PLOTS] = {0.0};
 float visualization::xcam      = 0;
@@ -198,7 +205,7 @@ bool visualization::waitForCompute()
 const char *volumeFilename = "/fs/HPC_ABMs/GitProjects/vocalcord-cpuabm-v6/src/Visualization/3D/data/Bucky.raw";
 cudaExtent volumeSize = make_cudaExtent(32, 32, 32);
 
-cudaMemcpy3DParms copyParams = {0};
+cudaMemcpy3DParms copyParams[m_ecmtotal];
 
 // Define the files that are to be save and the reference images for validation
 const char *sOriginal[] =
@@ -233,9 +240,9 @@ float transferOffset = 0.0f;
 float transferScale = 1.0f;
 bool linearFiltering = true;
 
-GLuint pbo = 0;     // OpenGL pixel buffer object
-GLuint tex = 0;     // OpenGL texture object
-struct cudaGraphicsResource *cuda_pbo_resource; // CUDA Graphics Resource (to transfer PBO)
+GLuint ecm_pbo[m_ecmtotal] = {0, 0, 0};     // OpenGL pixel buffer object
+GLuint ecm_tex[m_ecmtotal] = {0, 0, 0};     // OpenGL texture object
+struct cudaGraphicsResource *cuda_pbo_resource[m_ecmtotal]; // CUDA Graphics Resource (to transfer PBO)
 
 StopWatchInterface *timer = 0;
 
@@ -272,7 +279,7 @@ void computeFPS()
 }
 
 // render image using CUDA
-void render()
+void render(ecm_i ecm_index)
 {
 
     copyInvViewMatrix(invViewMatrix, sizeof(float4)*3);
@@ -280,10 +287,10 @@ void render()
     // map PBO to get CUDA device pointer
     uint *d_output;
     // map PBO to get CUDA device pointer
-    checkCudaErrors(cudaGraphicsMapResources(1, &cuda_pbo_resource, 0));
+    checkCudaErrors(cudaGraphicsMapResources(1, &cuda_pbo_resource[ecm_index], 0));
     size_t num_bytes;
     checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&d_output, &num_bytes,
-                                                         cuda_pbo_resource));
+                                                         cuda_pbo_resource[ecm_index]));
     //printf("CUDA mapped PBO: May access %ld bytes\n", num_bytes);
 
     // clear image
@@ -300,19 +307,23 @@ void render()
     		volumeSize.height,
     		volumeSize.depth,
     		width, height,
-    		density, brightness, transferOffset, transferScale);
+    		density, brightness, transferOffset, transferScale,
+    		ecm_index);
 
 
     getLastCudaError("kernel failed");
 
-    checkCudaErrors(cudaGraphicsUnmapResources(1, &cuda_pbo_resource, 0));
+    checkCudaErrors(cudaGraphicsUnmapResources(1, &cuda_pbo_resource[ecm_index], 0));
 }
 
 // display results using OpenGL (called by GLUT)
 void display()
 {
 
-    sdkStartTimer(&timer);
+#ifdef TIME_GL
+  struct timeval start, end, go_start, go_end;
+  gettimeofday(&start, NULL);
+#endif
 
     // use OpenGL to build view matrix
     GLfloat modelView[16];
@@ -343,10 +354,12 @@ void display()
     invViewMatrix[10] = modelView[10];
     invViewMatrix[11] = modelView[14];
 
-    render();
+    render(m_col);
+    render(m_ela);
+    render(m_hya);
 
     // for white bg
-    glClearColor(1.0f, 1.0f, 1.0f, 1.0f);           // This Will Clear The Background Color To White
+//    glClearColor(1.0f, 1.0f, 1.0f, 1.0f);           // This Will Clear The Background Color To White
     // display results
     glClear(GL_COLOR_BUFFER_BIT);
 
@@ -358,41 +371,44 @@ void display()
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
+
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 #if 0
     // draw using glDrawPixels (slower)
     glRasterPos2i(0, 0);
-    glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, pbo);
+    glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, ecm_pbo[m_col]);
     glDrawPixels(width, height, GL_RGBA, GL_UNSIGNED_BYTE, 0);
     glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
 #else
     // draw using texture
 
-    // copy from pbo to texture
-    glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, pbo);
-    glBindTexture(GL_TEXTURE_2D, tex);
-    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, 0);
-    glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
+//    const float partOf1 = 0.4f;
 
-    // draw textured quad
-    glEnable(GL_TEXTURE_2D);
-    glBegin(GL_QUADS);
-    glTexCoord2f(0, 0);
-    glVertex2f(0, 0);
-    glTexCoord2f(1, 0);
-    glVertex2f(1, 0);
-    glTexCoord2f(1, 1);
-    glVertex2f(1, 1);
-    glTexCoord2f(0, 1);
-    glVertex2f(0, 1);
-    glEnd();
+    for (int i = 0; i < m_ecmtotal; i++) {
+//    	if (i == m_ela) continue;
+    	ecm_i ei = static_cast<ecm_i>(i);
+    	// copy from pbo to texture
+    	glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, ecm_pbo[ei]);
+    	glBindTexture(GL_TEXTURE_2D, ecm_tex[ei]);
+    	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, 0);
+    	glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
 
-    glDisable(GL_TEXTURE_2D);
-    glBindTexture(GL_TEXTURE_2D, 0);
+    	// draw textured quad
+    	glEnable(GL_TEXTURE_2D);
+    	//    glColor4f(1.0f, 1.0f, 1.0f, partOf1 );
+    	glBegin(GL_QUADS);
+    	glTexCoord2f(0, 0); glVertex2f(0, 0);
+    	glTexCoord2f(1, 0); glVertex2f(1, 0);
+    	glTexCoord2f(1, 1); glVertex2f(1, 1);
+    	glTexCoord2f(0, 1); glVertex2f(0, 1);
+    	glEnd();
+
+    	glDisable(GL_TEXTURE_2D);
+    	glBindTexture(GL_TEXTURE_2D, 0);
+    }
+
+
 #endif
-
-
-
 
     glutSwapBuffers();
     glutReportErrors();
@@ -402,10 +418,14 @@ void display()
     computeFPS();
 
     char winTitle[256];
-    sprintf(winTitle, "Collagen: Iteration %d", visualization::iter);
+    sprintf(winTitle, "ECM Proteins: Day %d (Iteration %d)", (visualization::iter/48) + 1, visualization::iter);
 
     glutSetWindowTitle(winTitle);
 
+
+#ifdef TIME_GL
+  gettimeofday(&go_start, NULL);
+#endif
     if (!paused)
     {
     	/*****************************************/
@@ -420,9 +440,40 @@ void display()
 #endif	// OVERLAP_VIS
     	/*****************************************/
 
-    	bufferECMmap(copyParams);
+    	bufferECMmap(copyParams[m_col]);
+    	bufferECMmap(copyParams[m_ela]);
+    	bufferECMmap(copyParams[m_hya]);
     	visualization::iter++;
     }
+#ifdef TIME_GL
+  gettimeofday(&go_end, NULL);
+#endif
+
+
+
+#ifdef TIME_GL
+  gettimeofday(&end, NULL);
+
+  int ind = (iter - 1) % TIME_BUFFER_SIZE;
+  total_time[ind] = (end.tv_sec * 1000 + end.tv_usec / 1000)
+		  - (start.tv_sec * 1000 + start.tv_usec / 1000);
+
+  go_time[ind] = (go_end.tv_sec * 1000 + go_end.tv_usec / 1000)
+		  - (go_start.tv_sec * 1000 + go_start.tv_usec / 1000);
+
+  gl_time[ind] = total_time[ind] - go_time[ind];
+  long sum_total = 0, sum_go = 0, sum_gl = 0;
+  for (int i = 0; i < TIME_BUFFER_SIZE; i++) {
+    sum_total += total_time[i];
+    sum_go    += go_time[i];
+    sum_gl    += gl_time[i];
+  }
+
+  printf("Iter %d times and average of the last %d iterations: \n", iter - 1, TIME_BUFFER_SIZE);
+  printf("\tcompute time: %ld\taverage: %ld\n", go_time[ind], sum_go/TIME_BUFFER_SIZE);
+  printf("\trender time:  %ld\taverage: %ld\n", gl_time[ind], sum_gl/TIME_BUFFER_SIZE);
+  printf("\tTOTAL time:   %ld\taverage: %ld\n", total_time[ind], sum_total/TIME_BUFFER_SIZE);
+#endif
 }
 
 void idle()
@@ -479,6 +530,10 @@ void keyboard(unsigned char key, int x, int y)
         case ',':
             transferScale -= 0.01f;
             break;
+
+        case 'p':
+          paused = (paused == true)? false : true;
+          break;
 
         default:
             break;
@@ -566,11 +621,14 @@ void cleanup()
 
     freeCudaBuffers();
 
-    if (pbo)
+    for (int ei = 0; ei < m_ecmtotal; ei++)
     {
-        cudaGraphicsUnregisterResource(cuda_pbo_resource);
-        glDeleteBuffersARB(1, &pbo);
-        glDeleteTextures(1, &tex);
+    	if (ecm_pbo[ei])
+    	{
+    		cudaGraphicsUnregisterResource(cuda_pbo_resource[ei]);
+    		glDeleteBuffersARB(1, &ecm_pbo[ei]);
+    		glDeleteTextures(1, &ecm_tex[ei]);
+    	}
     }
     // cudaDeviceReset causes the driver to clean up all state. While
     // not mandatory in normal operation, it is good practice.  It is also
@@ -599,32 +657,35 @@ void initGL(int *argc, char **argv)
 
 void initPixelBuffer()
 {
-    if (pbo)
+	for (int ei = 0; ei < m_ecmtotal; ei++)
+	{
+    if (ecm_pbo[ei])
     {
         // unregister this buffer object from CUDA C
-        checkCudaErrors(cudaGraphicsUnregisterResource(cuda_pbo_resource));
+        checkCudaErrors(cudaGraphicsUnregisterResource(cuda_pbo_resource[ei]));
 
         // delete old buffer
-        glDeleteBuffersARB(1, &pbo);
-        glDeleteTextures(1, &tex);
+        glDeleteBuffersARB(1, &ecm_pbo[ei]);
+        glDeleteTextures(1, &ecm_tex[ei]);
     }
 
     // create pixel buffer object for display
-    glGenBuffersARB(1, &pbo);
-    glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, pbo);
+    glGenBuffersARB(1, &ecm_pbo[ei]);
+    glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, ecm_pbo[ei]);
     glBufferDataARB(GL_PIXEL_UNPACK_BUFFER_ARB, width*height*sizeof(GLubyte)*4, 0, GL_STREAM_DRAW_ARB);
     glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
 
     // register this buffer object with CUDA
-    checkCudaErrors(cudaGraphicsGLRegisterBuffer(&cuda_pbo_resource, pbo, cudaGraphicsMapFlagsWriteDiscard));
+    checkCudaErrors(cudaGraphicsGLRegisterBuffer(&cuda_pbo_resource[ei], ecm_pbo[ei], cudaGraphicsMapFlagsWriteDiscard));
 
     // create texture for display
-    glGenTextures(1, &tex);
-    glBindTexture(GL_TEXTURE_2D, tex);
+    glGenTextures(1, &ecm_tex[ei]);
+    glBindTexture(GL_TEXTURE_2D, ecm_tex[ei]);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glBindTexture(GL_TEXTURE_2D, 0);
+	}
 }
 
 // Load raw data from disk
@@ -668,11 +729,12 @@ int chooseCudaDevice(int argc, const char **argv, bool bUseOpenGL)
     return result;
 }
 
-
+#define RUN_ECM_VIS
 
 void visualization::start()
 {
 
+#ifdef RUN_ECM_VIS
 //  char *ref_file = NULL;
 
 #if defined(__linux__)
@@ -685,6 +747,7 @@ void visualization::start()
 
   // First initialize OpenGL context, so we can properly set the GL for CUDA.
   // This is necessary in order to achieve optimal performance with OpenGL/CUDA interop.
+  printf("Vis: Initializing OpenGL\n");
   initGL(&argc, argv);
 
 //  // load volume data
@@ -698,9 +761,15 @@ void visualization::start()
 
   size_t size = volumeSize.width*volumeSize.height*volumeSize.depth*sizeof(VolumeType);
 //  void *h_volume = world_ptr->ecmMap[m_col];//loadRawFile(path, size);
-  void *h_volume = world_ptr->ecmPreProcMap[m_col];
+  void *h_volume[m_ecmtotal];
 
-  initCuda(h_volume, volumeSize, copyParams);
+  printf("Vis: Initializing CUDA\n");
+  for (int i = 0; i < m_ecmtotal; i++) {
+  	ecm_i ei = static_cast<ecm_i>(i);
+  	copyParams[ei] = {0};
+  	h_volume[ei] = world_ptr->ecmPreProcMap[ei];
+  	initCuda(h_volume[ei], volumeSize, copyParams[ei], ei);
+  }
   //free(h_volume);
 
   sdkCreateTimer(&timer);
@@ -731,67 +800,70 @@ void visualization::start()
 
   glutMainLoop();
 
+#else   // RUN_ECM_VIS
 
-//  /* Initialize GLUT state - glut will take any command line arguments that pertain to it or
-// *  *    X Windows - look at its documentation at http://reality.sgi.com/mjk/spec3/spec3.html */
-//  glutInit(&argc, argv);
-//
-////  printf("executed glutInit()\n");
-//
-// /* Select type of Display mode:
-// *  Double buffer
-// *  RGBA color
-// *  Alpha components supported
-// *  Depth buffered for automatic clipping */
-//  glutInitDisplayMode(GLUT_RGBA | GLUT_DOUBLE | GLUT_ALPHA | GLUT_DEPTH | GLUT_MULTISAMPLE);
-//
-//  /* get a 640 x 480 window */
-//  glutInitWindowSize(WINW, WINH);
-//
-//  /* the window starts at the upper left corner of the screen */
-//  glutInitWindowPosition(0, 0);
-//
-//  /* Open a window */
-//  window = glutCreateWindow("Wound Healing ABM");
-//
-//  GLenum res = glewInit();
-//  if (res != GLEW_OK)
-//  {
-//    fprintf(stderr, "Error: '%s'\n", glewGetErrorString(res));
-//    exit(-1);
-//  }
-//
-//  /* Register the function to do all our OpenGL drawing. */
-//  glutDisplayFunc(&DrawGLScene);
-//
-//  /* Go fullscreen.  This is as soon as possible. */
-//  glutFullScreen();
-//
-//  /* Even if there are no events, redraw our gl scene. */
-//  glutIdleFunc(&DrawGLScene);
-//
-//  /* Register the function called when our window is resized. */
-//  glutReshapeFunc(&ReSizeGLScene);
-//
-//  /* Register the function called when the keyboard is pressed. */
-//  glutKeyboardFunc(&keyPressed);
-//  glutSpecialFunc(&SpecialInput);
-//
-//  /* Initialize our window. */
-//  InitGL(WINW, WINH);
-////      InitGL(640, 480);
-//  /* Set scar terrain ptr in myWorld (Need to be called AFTER InitGL) */
-////  world_ptr->setScarTerrainPtr(ScarTerrain_ptr);
-//  /* Register mouse function */
-//  glutMouseFunc(MouseButton);
-//#ifdef USE_MOUSE_ONLY
-//  glutMotionFunc(MouseMotion);
-//  glutPassiveMotionFunc(MousePassiveMotion);
-//#endif
-//
-//
-//  /* Start Event Processing Engine */
-//  glutMainLoop();
+  /* Initialize GLUT state - glut will take any command line arguments that pertain to it or
+ *  *    X Windows - look at its documentation at http://reality.sgi.com/mjk/spec3/spec3.html */
+  glutInit(&argc, argv);
+
+//  printf("executed glutInit()\n");
+
+ /* Select type of Display mode:
+ *  Double buffer
+ *  RGBA color
+ *  Alpha components supported
+ *  Depth buffered for automatic clipping */
+  glutInitDisplayMode(GLUT_RGBA | GLUT_DOUBLE | GLUT_ALPHA | GLUT_DEPTH | GLUT_MULTISAMPLE);
+
+  /* get a 640 x 480 window */
+  glutInitWindowSize(WINW, WINH);
+
+  /* the window starts at the upper left corner of the screen */
+  glutInitWindowPosition(0, 0);
+
+  /* Open a window */
+  window = glutCreateWindow("Wound Healing ABM");
+
+  GLenum res = glewInit();
+  if (res != GLEW_OK)
+  {
+    fprintf(stderr, "Error: '%s'\n", glewGetErrorString(res));
+    exit(-1);
+  }
+
+  /* Register the function to do all our OpenGL drawing. */
+  glutDisplayFunc(&DrawGLScene);
+
+  /* Go fullscreen.  This is as soon as possible. */
+  glutFullScreen();
+
+  /* Even if there are no events, redraw our gl scene. */
+  glutIdleFunc(&DrawGLScene);
+
+  /* Register the function called when our window is resized. */
+  glutReshapeFunc(&ReSizeGLScene);
+
+  /* Register the function called when the keyboard is pressed. */
+  glutKeyboardFunc(&keyPressed);
+  glutSpecialFunc(&SpecialInput);
+
+  /* Initialize our window. */
+  InitGL(WINW, WINH);
+//      InitGL(640, 480);
+  /* Set scar terrain ptr in myWorld (Need to be called AFTER InitGL) */
+//  world_ptr->setScarTerrainPtr(ScarTerrain_ptr);
+  /* Register mouse function */
+  glutMouseFunc(MouseButton);
+#ifdef USE_MOUSE_ONLY
+  glutMotionFunc(MouseMotion);
+  glutPassiveMotionFunc(MousePassiveMotion);
+#endif
+
+
+  /* Start Event Processing Engine */
+  glutMainLoop();
+
+#endif  // RUN_ECM_VIS
 }
 
 /*----------------------------------------------------------------------------------------
@@ -1566,12 +1638,7 @@ void visualization::ReSizeGLScene(int Width, int Height)
 }
 
 
-#ifdef TIME_GL
-#define TIME_BUFFER_SIZE    24
-long gl_time[TIME_BUFFER_SIZE];
-long go_time[TIME_BUFFER_SIZE];
-long total_time[TIME_BUFFER_SIZE];
-#endif
+
 
 /* The main drawing function. */
 //void visualization::DrawGLVolScene()
@@ -1665,13 +1732,9 @@ cout << "DrawGLScene: begin" << endl;
   glEnable(GL_DEPTH_TEST);
  
 
-// DEBUG
-cout << "DrawGLScene: Before swapbuffer()" << endl; 
   // swap the buffers to display, since double buffering is used.
   glutSwapBuffers();
 
-
-cout << "DrawGLScene: After swapbuffer()" << endl; 
 
 
 

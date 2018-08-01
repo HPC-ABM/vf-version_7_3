@@ -25,16 +25,31 @@
 #include "../Agent.h"
 #include "../../Patch/Patch.h"
 #include "../../World/Usr_World/woundHealingWorld.h"
+#include "../../Utilities/math_utils.h"
 
 class ECM; 
 
 #include <stdlib.h>
 #include <vector>
 #include <cmath>
+#include <assert.h>
 
 #include <omp.h>
 
+// TODO (NS): INSERT REF
+#define FIB_ACT_TGF_UB  3.375e-5
+#define FIB_ACT_TGF_LB  6.750e-6
+#define FIB_PRO_TGF_MX  3.375e-6        // Max stim level
+#define FIB_PRO_TGF_MN  3.375e-5        // Min inhibitorial level
+
+#define FIB_PROLIF_I0    96
+#define FIB_PROLIF_I1   192
+#define FIB_PROLIF_I2   360
+
+
 using namespace std;
+
+
 
 /*
  * FIBROBLAST CLASS DESCRIPTION:
@@ -94,35 +109,9 @@ class Fibroblast: public Agent {
      */
     void cellFunction();
 
-    /*
-     * Description:	Performs biological function of an unactivated fibroblast.
-     *
-     * Return: void
-     *
-     * Parameters: void
-     */                                                                                                
-    void fib_cellFunction();                                                                                                                        
 
     /*
-     * Description:	Performs biological function of an activated fibroblast.
-     *
-     * Return: void
-     *
-     * Parameters: void
-     */
-    void afib_cellFunction();                         
-
-    /*
-     * Description:	Moves a fibroblast along its preferred chemical gradient.
-     *
-     * Return: void
-     *
-     * Parameters: void
-     */
-    void fibSniff();
-
-    /*
-     * Description:	Performs fibroblast death. Updates the 
+     * Description:     Performs fibroblast death. Updates the
      *              fibroblast class members. Does not update numOfFibroblasts;
      *              this must be done elsewhere.
      *
@@ -130,10 +119,73 @@ class Fibroblast: public Agent {
      *
      * Parameters: void
      */
-    void die();						
+    void die();
+
 
     /*
-     * Description:	Activates an unactivated fibroblast. 
+     * Description: Copies the location of 'original' agent and initializes a
+     *              new fibroblast at a distance away determined by dx, dy, dz.
+     *              NOTE: Target patch at distance of dx,dy,dz must be
+     *              unoccupied for proper functionality.
+     *
+     * Return: void
+     *
+     * Parameters: original  -- Agent to be copied
+     *             dx        -- Difference in x-coordinate of the fibroblast's
+     *                          location relative to original's location.
+     *             dy        -- Difference in y-coordinate of the fibroblast's
+     *                          location relative to original's location.
+     *             dz        -- Difference in z-coordinate of the fibroblast's
+     *                          location relative to original's location.
+     *                          NOTE: dz = 0 because it is only 2D for now. TODO(Nuttiiya): I'm guessing this needs to change when you implement 3D?
+    */
+    void copyAndInitialize(Agent* original, int dx, int dy, int dz = 0);
+
+    /*************************************************************************
+     * INACTIVATED FIBROBLAST RELATED FUNCTIONS                              *
+     *************************************************************************/
+    /*
+     * Description:	Performs biological function of an unactivated fibroblast.
+     *
+     * Return: void
+     *
+     * Parameters: void
+     */                                                                                                
+    void fib_cellFunction();
+
+    /*
+     * Description:     wiggle()
+     *
+     * Return: void
+     *
+     * Parameters: void
+     */
+    void fib_migrate();
+
+    /*
+     * Description:     If enough stimulation, activate with some chance
+     *                  Patch TGF:
+     *                  (-inf,     3.375e-5] pg -> low chance    (25%)
+     *                  (3.375e-5, 6.750e-6] pg -> medium chance (50%)
+     *                  (6.750e-6,     +inf) pg -> high chance  (100%)
+     *
+     * Return: void
+     *
+     * Parameters: void
+     */
+    void fib_activate();
+
+    /*
+     * Description:     Performs biological aging by 1 tick.
+     *
+     * Return: void
+     *
+     * Parameters: void
+     */
+    void fib_degrade();
+
+    /*
+     * Description:     Activates an unactivated fibroblast.
      *              Updates the fibroblast class members.
      *
      * Return: void
@@ -141,6 +193,137 @@ class Fibroblast: public Agent {
      * Parameters: void
      */
     void fibActivation();
+
+
+    /*************************************************************************
+     * ACTIVATED FIBROBLAST RELATED FUNCTIONS                                *
+     *************************************************************************/
+    /*
+     * Description:	Performs biological function of an activated fibroblast.
+     *
+     * Return: void
+     *
+     * Parameters: void
+     */
+    void afib_cellFunction();
+
+    /*
+     * Description:     Proliferate at variable rates.
+     *                  After injury:
+     *                  Day 4-7  --   3.34 days
+     *                  Day 8-14 --  10.10 days
+     *                  Day 15+  -- 103.00 days
+     *
+     *                  Day  4 = Hour  96 -> FIB_PROLIF_I0
+     *                  Day  8 = Hour 192 -> FIB_PROLIF_I1
+     *                  Day 15 = Hour 360 -> FIB_PROLIF_I2
+     *
+     *                  TODO(NS): INSERT REF
+     *
+     *
+     * Return: void
+     *
+     * Parameters: void
+     */
+    void afib_proliferate();
+
+    /*
+     * Description:     Call cytokine production functions for myofibroblasts
+     *
+     *                  TODO(NS): INSERT REF
+     *
+     *
+     * Return: void
+     *
+     * Parameters: void
+     */
+    void afib_produce_cytokines(float neighborHAs);
+
+    float produce_tgf(REGULATORS_T uregs, REGULATORS_T dregs, REGULATORS_T coefs, float offset);
+    float produce_fgf(REGULATORS_T uregs, REGULATORS_T dregs, REGULATORS_T coefs, float offset);
+    float produce_tnf(REGULATORS_T uregs, REGULATORS_T dregs, REGULATORS_T coefs, float offset);
+    float produce_il6(REGULATORS_T uregs, REGULATORS_T dregs, REGULATORS_T coefs, float offset);
+    float produce_il8(REGULATORS_T uregs, REGULATORS_T dregs, REGULATORS_T coefs, float offset);
+
+    float calc_chem(REGULATORS_T uregs, REGULATORS_T dregs, REGULATORS_T coefs, float offset);
+
+    /*
+     * Description:     Case:   - Outside Wound -- Follow gradient to a healthy patch
+     *                          - Inside Wound  -- wiggle()
+     *
+     * Return:          True,  if inside wound
+     *                  False, otherwise
+     *
+     * Parameters: void
+     */
+
+    bool afib_migrate();
+
+    /*
+     * Description:     Make a list of damaged neighbors
+     *                  If the list is NOT empty,
+     *                          call make_<ecm>_monomers() functions
+     *
+     *
+     *                  TODO(NS): INSERT REF
+     *
+     * Return: void
+     *
+     * Parameters: void
+     */
+    void afib_produce_ecms();
+
+    void make_monomers(int dI_targets[3][3]);
+
+    float  make_coll_monomers(
+        int dI_target[3],
+        REGULATORS_T uregs,
+        REGULATORS_T dregs,
+        REGULATORS_T coefs,
+        float offset);
+    float  make_elas_monomers(
+        int dI_target[3],
+        REGULATORS_T uregs,
+        REGULATORS_T dregs,
+        REGULATORS_T coefs,
+        float offset);
+    float  make_hyaluronans(
+        int dI_target[3],
+        REGULATORS_T uregs,
+        REGULATORS_T dregs,
+        REGULATORS_T coefs,
+        float offset);
+    float calc_stim(
+        REGULATORS_T uregs,
+        REGULATORS_T dregs,
+        REGULATORS_T coefs,
+        float offset,
+        float max_stim = 2.0f);
+
+    // Get random neighbor from the list
+    void get_rn_from_list(
+        vector <int> damagedneighbors,
+        int &dX,
+        int &dY,
+        int &dZ);
+
+    /*
+     * Description:     Call die() function if max #proliferation reached
+     *
+     * Return: void
+     *
+     * Parameters: void
+     */
+    void afib_degrade();
+
+    /*
+     * Description:     Call de-activation function if damage is cleared
+     *
+     * Return: void
+     *
+     * Parameters: void
+     */
+    void afib_deactivate();
 
     /*
      * Description:	Deactivates an activated fibroblast. 
@@ -152,81 +335,6 @@ class Fibroblast: public Agent {
      */
     void fibDeactivation();
 
-    /* 
-     * Description: Copies the location of 'original' agent and initializes a 
-     *              new fibroblast at a distance away determined by dx, dy, dz.
-     *              NOTE: Target patch at distance of dx,dy,dz must be 
-     *              unoccupied for proper functionality.
-     *
-     * Return: void
-     *
-     * Parameters: original  -- Agent to be copied
-     *             dx        -- Difference in x-coordinate of the fibroblast's 
-     *                          location relative to original's location.
-     *             dy        -- Difference in y-coordinate of the fibroblast's 
-     *                          location relative to original's location.
-     *             dz        -- Difference in z-coordinate of the fibroblast's
-     *                          location relative to original's location.
-     *                          NOTE: dz = 0 because it is only 2D for now. TODO(Nuttiiya): I'm guessing this needs to change when you implement 3D?
-    */
-    void copyAndInitialize(Agent* original, int dx, int dy, int dz = 0);  
-
-    /*
-     * Description:	Sprouts original collagen on one of the activated fibroblast's 
-     *              damaged neighbor patches.
-     *
-     * Return: void
-     *
-     * Parameters: meanTGF   -- Average TGF concentration of the activated 
-     *                          fibroblast's neighbors
-     * 				     meanFGF   -- Average FGF concentration of the activated
-     *                          fibroblast's neighbors
-     * 				     meanIL1   -- Average IL1 concentration of the activated
-     *                          fibroblast's neighbors
-     * 				     meanIL6   -- Average IL6 concentration of the activated
-     *                          fibroblast's neighbors
-     * 				     meanIL8   -- Average IL8 concentration of the activated
-     *                          fibroblast's neighbors
-     * 				     countnHA	 -- Number of new hyaluronan on the activated
-     *                          fibroblast's neighbors
-     * 				     countfHA	 -- Number of fragment hyaluronan on the activated
-     *                          fibroblast's neighbors
-     */
-    void makeOCollagen(float meanTGF, float meanFGF, float meanIL1, float meanIL6, float meanIL8, int countnHA, int countfHA);
-
-    /*
-     * Description:	Sprouts original elastin on one of the activated fibroblast's 
-     *              damaged neighbor patches.
-     *
-     * Return: void
-     *
-     * Parameters: meanTNF  -- Average TNF concentration of the activated
-     *                         fibroblast's neighbors
-     * 				     meanTGF  -- Average TGF concentration of the activated
-     *                         fibroblast's neighbors
-     * 				     meanFGF  -- Average FGF concentration of the activated
-     *                         fibroblast's neighbors
-     * 				     meanIL1  -- Average IL1 concentration of the activated
-     *                         fibroblast's neighbors
-     */
-    void makeOElastin(float meanTNF, float meanTGF, float meanFGF, float meanIL1);
-
-    /*
-     * Description:	Sprouts new hyaluronan on one of the activated fibroblast's
-     *              damaged neighbor patches.
-     *
-     * Return: void
-     *
-     * Parameters: meanTNF  -- Average TNF concentration of the activated
-     *                         fibroblast's neighbors
-     * 				     meanTGF  -- Average TGF concentration of the activated
-     *                         fibroblast's neighbors
-     * 				     meanFGF  -- Average FGF concentration of the activated
-     *                         fibroblast's neighbors
-     * 				     meanIL1  -- Average IL1 concentration of the activated
-     *                         fibroblast's neighbors
-     */
-    void makeHyaluronan(float meanTNF, float meanTGF, float meanFGF, float meanIL1);
 
     /*
      * Description:	Hatches a new fibroblast on 'number' unoccupied neighbors.
@@ -238,6 +346,19 @@ class Fibroblast: public Agent {
      * Parameters: number  -- Number of new fibroblasts to hatch
      */
     void hatchnewfibroblast(int number);
+
+
+    int get_current_index(int &x, int &y, int &z, int &read_index);
+
+    /*************************************************************************
+     * ACTIVATED and INACTIVATED FIBROBLAST RELATED FUNCTIONS                *
+     *************************************************************************/
+
+    // Number of maximum proliferation per interval
+    int maxProlif[3];
+    // For make ecm function to use to check for migration
+    bool isMigrated;
+
 
     // Keeps track of the quantitiy of living neutrophils.
     static int numOfFibroblasts;

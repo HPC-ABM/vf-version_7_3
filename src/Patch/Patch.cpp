@@ -26,9 +26,13 @@
 
 using namespace std;
 
+ECM* Patch::PatchECMPtr = NULL;
 float Patch::numOfEachTypes[5] = {0,0,0,0,0};
+float Patch::NormCol[lp_total] = {AV_NORM_COL_DLP, AV_NORM_COL_ILP, AV_NORM_COL_SLP};
+float Patch::NormEla[lp_total] = {AV_NORM_ELA_DLP, AV_NORM_ELA_ILP, AV_NORM_ELA_SLP};
+float Patch::NormHya[lp_total] = {AV_NORM_HYA_DLP, AV_NORM_HYA_ILP, AV_NORM_HYA_SLP};
 
-Patch::Patch() { 
+Patch::Patch() {
 	this->dirty = true;
 	this->occupied[read_t] = new atomic_flag(ATOMIC_FLAG_INIT);
 	this->occupied[write_t] = new atomic_flag(ATOMIC_FLAG_INIT);
@@ -36,27 +40,26 @@ Patch::Patch() {
 	this->indice[1] = 0;
 	this->indice[2] = 0;
 	this->index = 0;
+	this->lpi = -1;
 	this->inDamzone = false;
 	this->initHA = false;
 	this->initelastin = false;
 	this->initcollagen = false;
 	this->type[read_t] = nothing;
 	this->color[read_t] = cnothing;
-	this->health[read_t] = 100;
 	this->damage[read_t] = 0;
 	this->occupied[read_t]->clear();
 	this->occupied_bool[read_t] = false;
 	this->occupiedby[read_t] = unoccupied;
 	this->type[write_t] = nothing;
 	this->color[write_t] = cnothing;
-	this->health[write_t] = 100;
 	this->damage[write_t] = 0;
 	this->occupied[write_t]->clear();
 	this->occupied_bool[write_t] = false;
 	this->occupiedby[write_t] = unoccupied;
 }
 
-Patch::Patch(int x, int y, int z, int index) {
+Patch::Patch(int x, int y, int z, int index, int lpi) {
 	this->dirty = true;
 	this->occupied[read_t] = new atomic_flag(ATOMIC_FLAG_INIT);
 	this->occupied[write_t] = new atomic_flag(ATOMIC_FLAG_INIT);
@@ -64,20 +67,19 @@ Patch::Patch(int x, int y, int z, int index) {
 	this->indice[1] = y;
 	this->indice[2] = z;
 	this->index = index;
+	this->lpi = lpi;
 	this->inDamzone = false;
 	this->initHA = false;
 	this->initelastin = false;
 	this->initcollagen = false;
 	this->type[read_t] = nothing;
 	this->color[read_t] = cnothing;
-	this->health[read_t] = 100;
 	this->damage[read_t] = 0;
 	this->occupied[read_t]->clear();
 	this->occupied_bool[read_t] = false;
 	this->occupiedby[read_t] = unoccupied;
 	this->type[write_t] = nothing;
 	this->color[write_t] = cnothing;
-	this->health[write_t] = 100;
 	this->damage[write_t] = 0;
 	this->occupied[write_t]->clear();
 	this->occupied_bool[write_t] = false;
@@ -89,7 +91,8 @@ Patch::Patch(const Patch& obj){
   indice[0] = obj.indice[0];
   indice[1] = obj.indice[1];
   indice[2] = obj.indice[2];
-  index = obj.index; 
+  index = obj.index;
+  lpi = obj.lpi;
   inDamzone = obj.inDamzone;
   initHA = obj.initHA;
   initcollagen = obj.initcollagen;
@@ -98,8 +101,6 @@ Patch::Patch(const Patch& obj){
   type[write_t] = obj.type[write_t];
   color[read_t] = obj.color[read_t];
   color[write_t] = obj.color[write_t];
-  health[read_t] = obj.health[read_t];
-  health[write_t] = obj.health[write_t];
   damage[read_t] = obj.damage[read_t];
   damage[write_t] = obj.damage[write_t];
   occupiedby[read_t] = obj.occupiedby[read_t];
@@ -136,8 +137,6 @@ Patch& Patch::operator=(const Patch& obj){
   type[write_t] = obj.type[write_t];
   color[read_t] = obj.color[read_t];
   color[write_t] = obj.color[write_t];
-  health[read_t] = obj.health[read_t];
-  health[write_t] = obj.health[write_t];
   damage[read_t] = obj.damage[read_t];
   damage[write_t] = obj.damage[write_t];
   occupiedby[read_t] = obj.occupiedby[read_t];
@@ -154,6 +153,8 @@ Patch& Patch::operator=(const Patch& obj){
   return *this; 
   
 }
+
+
 
 bool Patch::isOccupied() {
 	return this->occupied_bool[read_t];
@@ -218,6 +219,11 @@ bool Patch::isDamaged()
   return (this->damage[read_t] > 0);
 }
 
+bool Patch::isHealthy()
+{
+  return !(this->isDamaged());
+}
+
 bool Patch::isInDamZone()
 {
   return this->inDamzone;
@@ -242,9 +248,9 @@ int Patch::getColorfromType() {
 		return cnothing; 
 	} else if (this->type[read_t] == tissue) {
 #ifdef MODEL_VOCALFOLD
-                if (this->LP == SLP) return cSLP; 
-                else if (this ->LP == ILP) return cILP; 
-                else if (this ->LP == DLP) return cDLP; 
+                if (this->lpi == lp_si) return cSLP;
+                else if (this ->lpi == lp_ii) return cILP;
+                else if (this ->lpi == lp_di) return cDLP;
                 else return cmuscle; 
 #else
 		return ctissue;  
@@ -280,7 +286,6 @@ void Patch::updatePatch() {
 
     // Update patch class attributes
 		this->type[read_t] = this->type[write_t];
-		this->health[read_t] = this->health[write_t];
 		this->damage[read_t] = this->damage[write_t];
 		this->occupied_bool[read_t] = this->occupied_bool[write_t];
 		this->occupiedby[read_t] = this->occupiedby[write_t];

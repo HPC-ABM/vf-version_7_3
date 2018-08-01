@@ -368,10 +368,10 @@ void WHChemical::update(int totaldamage, float* cytokineDecay, chemupdate_t upda
 					float patchIL8     = this->getPchem(IL8, in);
 
 					float grad = patchIL1beta + patchTNF + patchTGF + patchFGF +
-					        this->chemWorldPtr->worldECM[in].fcollagen[read_t];
+					        this->chemWorldPtr->worldECM[in].fragmnt_col[read_t];
                     this->setGrad(FIBgrad, in, patchTGF);
                     this->setGrad(NEUgrad, in, grad + patchIL6 + patchIL8);
-                    this->setGrad(MACgrad, in, grad + this->chemWorldPtr->worldECM[in].felastin[read_t]);
+                    this->setGrad(MACgrad, in, grad + this->chemWorldPtr->worldECM[in].fragmnt_ela[read_t]);
 				}
 			}
 		}
@@ -435,10 +435,10 @@ void WHChemical::update(int totaldamage, float* cytokineDecay, chemupdate_t upda
 	float patchTNF = this->pTNF[in];
 	float patchTGF = this->pTGF[in];
 	float patchFGF = this->pFGF[in];
-	float grad = patchIL1beta + patchTNF + patchTGF + patchFGF + this->chemWorldPtr->worldECM[in].fcollagen[read_t];
+	float grad = patchIL1beta + patchTNF + patchTGF + patchFGF + this->chemWorldPtr->worldECM[in].fragmnt_col[read_t];
 	this->pfibgrad[in] = patchTGF;
 	this->pneugrad[in] = grad + this->pIL6[in] + this->pIL8[in];
-	this->pmacgrad[in] = grad + this->chemWorldPtr->worldECM[in].felastin[read_t];
+	this->pmacgrad[in] = grad + this->chemWorldPtr->worldECM[in].fragmnt_ela[read_t];
     }
 #pragma omp critical
     {

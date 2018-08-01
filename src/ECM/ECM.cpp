@@ -56,16 +56,9 @@ ECM::ECM() {
 
 ECM::ECM(int x, int y, int z, int index) {
 
-#ifdef _OMP
-	omp_init_lock(&ECMmutex);
-#endif
-
-#ifdef OPT_ECM
-	this->HAlife = new std::vector<int>;
-#else   //  OPT_ECM
-	this->HAlife[write_t] = new std::vector<int>;
-	this->HAlife[read_t]  = new std::vector<int>;
-#endif
+	//#ifdef _OMP
+	omp_init_lock(&ECMlock);
+	//#endif
 
 	this->dirty = true;
 	this->request_dirty = true;
@@ -74,32 +67,30 @@ ECM::ECM(int x, int y, int z, int index) {
 	this->indice[1] = y;
 	this->indice[2] = z;
 	this->index = index;
-	this->empty[read_t] = true;
-	this->ocollagen[read_t] = 0;
-	this->ncollagen[read_t] = 0;
-	this->fcollagen[read_t] = 0;
-	this->oelastin[read_t] = 0;
-	this->nelastin[read_t] = 0;
-	this->felastin[read_t] = 0;
-	this->HA[read_t] = 0;
+	this->polymer_col = 0;
+	this->monomer_col[read_t] = 0;
+	this->fragmnt_col[read_t] = 0;
+	this->polymer_ela = 0;
+	this->monomer_ela[read_t] = 0;
+	this->fragmnt_ela[read_t] = 0;
+	this->totalHA[read_t] = 0.0f;
 	this->fHA[read_t] = 0;
 	this->fcDangerSignal[read_t] = false;
 	this->feDangerSignal[read_t] = false;
 	this->fHADangerSignal[read_t] = false;
-	this->scarIndex[read_t] = false;
-	this->empty[write_t] = true;
-	this->ocollagen[write_t] = 0;
-	this->ncollagen[write_t] = 0;
-	this->fcollagen[write_t] = 0;
-	this->oelastin[write_t] = 0;
-	this->nelastin[write_t] = 0;
-	this->felastin[write_t] = 0;
-	this->HA[write_t] = 0;
+	this->scarIndex = false;
+	this->polymer_col = 0;
+	this->monomer_col[write_t] = 0;
+	this->fragmnt_col[write_t] = 0;
+	this->polymer_ela = 0;
+	this->monomer_ela[write_t] = 0;
+	this->fragmnt_ela[write_t] = 0;
+	this->totalHA[write_t] = 0.0f;
 	this->fHA[write_t] = 0;
 	this->fcDangerSignal[write_t] = false;
 	this->feDangerSignal[write_t] = false;
 	this->fHADangerSignal[write_t] = false;
-	this->scarIndex[write_t] = false;
+	this->scarIndex = false;
 #ifdef OPT_FECM_REQUEST
 	fcollagenrequest = 0;
 	felastinrequest  = 0;
@@ -113,6 +104,9 @@ ECM::ECM(int x, int y, int z, int index) {
 }
 
 ECM::~ECM() {
+#ifdef _OMP
+	omp_destroy_lock(&ECMlock);
+#endif
 }
 
 void ECM::set_dirty() {
@@ -156,37 +150,37 @@ void ECM::decrement(int n) {
 }
 
 
-void ECM::lock() {
+inline void ECM::lock() {
 #ifdef _OMP
-	omp_set_lock(&ECMmutex);
+	omp_set_lock(&ECMlock);
 #endif
 }
 
-void ECM::unlock() {
+inline void ECM::unlock() {
 #ifdef _OMP
-	omp_unset_lock(&ECMmutex);
+	omp_unset_lock(&ECMlock);
 #endif
 }
 
 
 void ECM::cleanFragmentedECM(){
 	if (ECMPatchPtr[this->index].occupiedby[read_t] == amacrophag || ECMPatchPtr[this->index].occupiedby[read_t] == aneutrophil) {
-		if (this->fcollagen[read_t] > 0) {
-			int wFC = this->fcollagen[write_t];
-			int rFC = this->fcollagen[read_t];
+		if (this->fragmnt_col[read_t] > 0) {
+			int wFC = this->fragmnt_col[write_t];
+			int rFC = this->fragmnt_col[read_t];
 			if (wFC == rFC)
-				this->fcollagen[write_t] = rFC - 1;
+				this->fragmnt_col[write_t] = rFC - 1;
 			else
-				this->fcollagen[write_t] = wFC - 1;
+				this->fragmnt_col[write_t] = wFC - 1;
 		}
 
-		if (this->felastin[read_t] > 0) {
-			int wFE = this->felastin[write_t];
-			int rFE = this->felastin[read_t];
+		if (this->fragmnt_ela[read_t] > 0) {
+			int wFE = this->fragmnt_ela[write_t];
+			int rFE = this->fragmnt_ela[read_t];
 			if (wFE == rFE)
-				this->felastin[write_t] = rFE - 1;
+				this->fragmnt_ela[write_t] = rFE - 1;
 			else
-				this->felastin[write_t] = wFE - 1;
+				this->fragmnt_ela[write_t] = wFE - 1;
 		}
 
 		if (this->fHA[read_t] > 0) {
@@ -244,51 +238,18 @@ void ECM::ECMFunction() {
 	 *************************************************************************/
 	// New ECM proteins can repair damage on their patch  // TODO(Kim): INSERT REF?
 
-	if (this->ncollagen[read_t] > 0 || this->nelastin[read_t] > 0 || this->HA[read_t] > 0) {
-#ifdef PROFILE_ECM
-		gettimeofday(&t0, NULL);
-#endif
-		this->repairDamage();
-
-#ifdef PROFILE_ECM
-		gettimeofday(&t1, NULL);
-		ECM::ECMWorldPtr->ECMrepairTime += (t1.tv_sec-t0.tv_sec)*1000000 + (t1.tv_usec-t0.tv_usec);
-#endif
-	}
-
-	/*************************************************************************
-	 * DEATH                                                                 *
-	 *************************************************************************/
-	/* Each hyaluronan life decreases at each time step and they die naturally
-	 * Collagen & elastin have 'infinite life' because their half lives are on 
-	 * the order of years. */
-#ifdef OPT_ECM
-	/*
-// DEBUG 
-      int HAsizet = HAlife->size();
-      if (HAsizet > ECM::ECMWorldPtr->maxHAsize) 
-      {
-        ECM::ECMWorldPtr->maxHAsize = HAsizet;
-        //printf("\tNew HA size max: %d\n", HAsize);
-      }
-	 */
+	int repairAmount = (int) (this->polymer_col + this->polymer_ela + this->totalHA[read_t]);
 #ifdef PROFILE_ECM
 	gettimeofday(&t0, NULL);
 #endif
-	//	for_each(HAlife->begin(), HAlife->end(), decrement);
-	int HAsize = HAlife->size();
-	for (int i = 0; i < HAsize; i++) {
-		decHAlife(i);
-	}
+	if (repairAmount) this->repairDamage(repairAmount);
+
 #ifdef PROFILE_ECM
 	gettimeofday(&t1, NULL);
-	ECM::ECMWorldPtr->HAlifeTime += (t1.tv_sec-t0.tv_sec)*1000000 + (t1.tv_usec-t0.tv_usec);
+	ECM::ECMWorldPtr->ECMrepairTime += (t1.tv_sec-t0.tv_sec)*1000000 + (t1.tv_usec-t0.tv_usec);
 #endif
-#else  // OPT_ECM
-	for (int i = 0; i < HAlife[read_t]->size(); i++) {
-		decHAlife(i);
-	}
-#endif  // OPT_ECM
+
+
 
 	/*************************************************************************
 	 * DANGER SIGNALLING                                                     *
@@ -322,9 +283,9 @@ void ECM::ECMFunction() {
 #ifdef PROFILE_ECM
 	gettimeofday(&t0, NULL);
 #endif
-	if (ncollagen[read_t] >= 10) {  // TODO after sensitivity
+	if (monomer_col[read_t] >= 10) {  // TODO after sensitivity
 		this->set_dirty();
-		scarIndex[write_t] = true;                                 // FIXME
+		scarIndex = true;                                 // FIXME
 	}
 #ifdef PROFILE_ECM
 	gettimeofday(&t1, NULL);
@@ -332,63 +293,38 @@ void ECM::ECMFunction() {
 #endif
 }
 
-void ECM::repairDamage() {
-	// Location of neighbor in x,y,z dimensions of the world:
-	int tempX, tempY, tempZ, tempIndex;
-	int nx, ny, nz;
-	Patch* tempPatchPtr;
-	// Number of patches in x,y,z dimensions of the world:
-	nx = ECM::ECMWorldPtr->nx;
-	ny = ECM::ECMWorldPtr->ny;
-	nz = ECM::ECMWorldPtr->nz;
-	//Repair damage on current and Neighbor Patches
-	for (int dZ = -1; dZ <= 1; dZ++) {
-		for (int dY = -1; dY <= 1; dY++) {
-			for (int dX = -1; dX <= 1; dX++) {
-				// Location of patch to be repaired in x,y,z dimensions of world.
-				tempX = this->indice[0] + dX;
-				tempY = this->indice[1] + dY;
-				tempZ = this->indice[2] + dZ;
+void ECM::repairDamage(int repairAmount) {
 
-				// Try a new patch if this one is outside the world dimensions.
-				if (tempX < 0 || tempX >= nx || tempY < 0 || tempY >= ny || tempZ < 0 || tempZ >= nz) continue;
+	int in = this->index;
+	Patch *tempPatchPtr = &(ECM::ECMPatchPtr[in]);
+	// if no damage on patch, do nothing
+	if (!tempPatchPtr->damage[read_t]) return;
 
-				// Get access to the patch on which this ECM manager resides
-				tempIndex = tempX + tempY*nx + tempZ*(nx)*(ny);
-				tempPatchPtr = &(ECM::ECMPatchPtr[tempIndex]);
-
-				if (tempPatchPtr->damage[write_t] > 0) {        // NS: Why not read from read_t?
-					// Data race allowed, since we're just overwriting values
-					tempPatchPtr->dirty = true;
-					tempPatchPtr->damage[write_t] = 0;
-					tempPatchPtr->type[write_t] = tissue;
-					tempPatchPtr->color[write_t] = ctissue;
-					tempPatchPtr->health[write_t] = 100;
-					//                                        cout << " repair damage at " <<tempIndex << endl;
-				}
-			}
-		}
+	if (tempPatchPtr->damage[read_t] > repairAmount) {
+		// Data race allowed, since we're just overwriting values
+		tempPatchPtr->damage[write_t] -= repairAmount;
+	} else {
+		tempPatchPtr->damage[write_t] = 0;
+		tempPatchPtr->color[write_t] = ctissue;
 	}
+	tempPatchPtr->dirty = true;
 }
 
 void ECM::dangerSignal() {
 	this->ECMPatchPtr[this->index].dirty = true;
 	this->ECMPatchPtr[this->index].damage[write_t]++;
-	this->ECMPatchPtr[this->index].health[write_t] = 0;
 	this->ECMPatchPtr[this->index].color[write_t] = cdamage;
 
 	/* Activated macrophages and activated neutrophils can remove newly created
 	 * damage if they are present. */  // TODO(Kim): INSERT REF?
 	if (ECMPatchPtr[this->index].isOccupied() == false) return;
 	if (ECMPatchPtr[this->index].occupiedby[read_t] == amacrophag || ECMPatchPtr[this->index].occupiedby[read_t] == aneutrophil) {
-		ECMPatchPtr[this->index].damage[write_t] = 0;
-		ECMPatchPtr[this->index].type[write_t] = tissue;
+		ECMPatchPtr[this->index].damage[write_t]--;
 		ECMPatchPtr[this->index].color[write_t] = ctissue;
-		ECMPatchPtr[this->index].health[write_t] = 100;
 	}
 }
 
-void ECM::fragmentNCollagen() {
+void ECM::fragmentCol() {
 	// Distance to neighbor in x,y,z dimensions of the world:
 	int dX, dY, dZ;
 	int newfragments = 0;
@@ -402,49 +338,56 @@ void ECM::fragmentNCollagen() {
 	int ny = ECM::ECMWorldPtr->ny;
 	int nz = ECM::ECMWorldPtr->nz;
 
+	int cols = (int) this->polymer_col;
+
 	// Alert change in status of original collagen
-	if (this->ncollagen[write_t] > 0) {
+	if (this->polymer_col >= 1.0f) {
 		this->set_dirty();
-		//		this->set_request_dirty();
-	}
-
-	/* Request hatching two fragmented collagens on neighboring patches for each 
-	 * original collagen */
-	while (this->ncollagen[write_t] > 0) {
-		this->ncollagen[write_t]--;
-		newfragments = 0;
-
-		// Request one fragmented collagen at a random inbounds neighboring patch.
 
 
-		// TODO(Caroline) Might want to make the radius = 2
-		std::random_shuffle(&dn[0], &dn[27]);
-		for (int i = 0; i < 27; i++) {
-			dX = dx[dn[i]];
-			dY = dy[dn[i]];
-			dZ = dz[dn[i]];
-			if (newfragments >= 2) break;
-			if (ix + dX < 0 || ix + dX >= nx || iy + dY < 0 || iy + dY >= ny || iz + dZ < 0 || iz + dZ >= nz) continue;
-			int in = (ix + dX) + (iy + dY)*nx + (iz + dZ)*nx*ny;
+		/* Request hatching two fragmented collagens on neighboring patches for each
+		 * original collagen */
+		while (this->polymer_col >= 1.0f) {
+			this->polymer_col--;
+			newfragments = 0;
+
+			// Request one fragmented collagen at a random inbounds neighboring patch.
+
+
+			// TODO(Caroline) Might want to make the radius = 2
+			std::random_shuffle(&dn[0], &dn[27]);
+			for (int i = 0; i < 27; i++) {
+				dX = dx[dn[i]];
+				dY = dy[dn[i]];
+				dZ = dz[dn[i]];
+				if (newfragments >= 2) break;
+				if (ix + dX < 0 || ix + dX >= nx || iy + dY < 0 || iy + dY >= ny || iz + dZ < 0 || iz + dZ >= nz) continue;
+				int in = (ix + dX) + (iy + dY)*nx + (iz + dZ)*nx*ny;
 #ifdef OPT_FECM_REQUEST
-			this->ECMWorldPtr->worldECM[in].addCollagenFragment();
-#else	// OPT_FECM_REQUEST
-			//'dX + dY*3 + dZ*3*3 + 13' determines which neighbor
-			this->requestfcollagen[dX + dY*3 + dZ*3*3 + 13]++;
-			// Alert change in status of collagen on this patch
-			this->ECMWorldPtr->worldECM[in].set_dirty_from_neighbors();
-#endif	// OPT_FECM_REQUEST
-			newfragments++;
+				this->ECMWorldPtr->worldECM[in].addCollagenFragment();
+#else   // OPT_FECM_REQUEST
+				//'dX + dY*3 + dZ*3*3 + 13' determines which neighbor
+				this->requestfragmnt_col[dX + dY*3 + dZ*3*3 + 13]++;
+				// Alert change in status of collagen on this patch
+				this->ECMWorldPtr->worldECM[in].set_dirty_from_neighbors();
+#endif  // OPT_FECM_REQUEST
+				newfragments++;
+			}
 		}
+
+		this->polymer_col = 0.0f;
+
+		//#ifdef VISUALIZATION
+		// Update ECM polymer map
+		this->ECMWorldPtr->resetECM(this->index, m_col);
+		//#endif    // VISUALIZATION
 	}
-//#ifdef VISUALIZATION
-	// Update ECM polymer map
-	this->ECMWorldPtr->setECM(this->index, m_col, 0);
-//#endif	// VISUALIZATION
-	this->isEmpty();
+
+
+
 }
 
-void ECM::fragmentNElastin() {
+void ECM::fragmentEla() {
 	// Distance to neighbor in x,y,z dimensions of the world:
 	int dX, dY, dZ;
 	int dn[27] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26};
@@ -459,127 +402,70 @@ void ECM::fragmentNElastin() {
 	int nz = ECM::ECMWorldPtr->nz;
 
 	// Alert change in status of original elastin
-	if (this->nelastin[write_t] > 0) {
+	if (this->polymer_ela >= 1.0f) {
 		this->set_dirty();
 		//		this->set_request_dirty();
-	}
-
-	/* Request hatching two fragmented elastins on neighboring patches for each
-	 * original elastin */
-	while (this->nelastin[write_t] > 0) {
-		this->nelastin[write_t]--;
-		newfragments = 0;
-
-		// Request one fragmented elastin at a random inbounds neighboring patch.
 
 
-		// TODO(Caroline) Might want to make the radius = 2
-		std::random_shuffle(&dn[0], &dn[27]);
-		for (int i = 0; i < 27; i++) {
-			dX = dx[dn[i]];
-			dY = dy[dn[i]];
-			dZ = dz[dn[i]];
-			if (newfragments >= 2) break;
-			if (ix + dX < 0 || ix + dX >= nx || iy + dY < 0 || iy + dY >= ny || iz + dZ < 0 || iz + dZ >= nz) continue;
-			int in = (ix + dX) + (iy + dY)*nx + (iz + dZ)*nx*ny;
+		/* Request hatching two fragmented elastins on neighboring patches for each
+		 * original elastin */
+		while (this->polymer_ela >= 1.0f) {
+			this->polymer_ela--;
+			newfragments = 0;
+
+			// Request one fragmented elastin at a random inbounds neighboring patch.
+
+
+			// TODO(Caroline) Might want to make the radius = 2
+			std::random_shuffle(&dn[0], &dn[27]);
+			for (int i = 0; i < 27; i++) {
+				dX = dx[dn[i]];
+				dY = dy[dn[i]];
+				dZ = dz[dn[i]];
+				if (newfragments >= 2) break;
+				if (ix + dX < 0 || ix + dX >= nx || iy + dY < 0 || iy + dY >= ny || iz + dZ < 0 || iz + dZ >= nz) continue;
+				int in = (ix + dX) + (iy + dY)*nx + (iz + dZ)*nx*ny;
 #ifdef OPT_FECM_REQUEST
-			this->ECMWorldPtr->worldECM[in].addElastinFragment();
+				this->ECMWorldPtr->worldECM[in].addElastinFragment();
 #else   // OPT_FECM_REQUEST
-			//'dX + dY*3 + dZ*3*3 + 13' determines which neighbor
-			this->requestfelastin[dX + dY*3 + dZ*3*3 + 13]++;
-			// Alert change in status of elastin on this patch
-			this->ECMWorldPtr->worldECM[in].set_dirty_from_neighbors();
+				//'dX + dY*3 + dZ*3*3 + 13' determines which neighbor
+				this->requestfragmnt_ela[dX + dY*3 + dZ*3*3 + 13]++;
+				// Alert change in status of elastin on this patch
+				this->ECMWorldPtr->worldECM[in].set_dirty_from_neighbors();
 #endif	// OPT_FECM_REQUEST
-			newfragments++;
+				newfragments++;
+			}
 		}
-	}
-//#ifdef VISUALIZATION
-	// Update ECM polymer map
-	this->ECMWorldPtr->setECM(this->index, m_ela, 0);
-//#endif	// VISUALIZATION
 
-	this->isEmpty();
+		this->polymer_ela = 0.0f;
+		//#ifdef VISUALIZATION
+		// Update ECM polymer map
+		this->ECMWorldPtr->resetECM(this->index, m_ela);
+		//#endif	// VISUALIZATION
+	}
+
 }
 
-void ECM::fragmentHA() {
-	int tid = 0;
-#ifdef _OMP
-	// Get thread id in order to access the seed that belongs to this thread
-	tid = omp_get_thread_num();
-#endif
-	// Distance to neighbor in x,y,z dimensions of the world:
-	int dX, dY, dZ;
-	int dn[27] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26};
-	int newfragments = 0;
-	// Location of ECM manager in x,y,z dimensions of the world:
-	int ix = indice[0];
-	int iy = indice[1];
-	int iz = indice[2];
-	// Number of patches in x,y,z dimensions of the world:
-	int nx = ECM::ECMWorldPtr->nx;
-	int ny = ECM::ECMWorldPtr->ny;
-	int nz = ECM::ECMWorldPtr->nz;
+void ECM::fragmentHA(bool isInit) {
 
-	// Alert change in status of hyaluronan
-	if (HA[write_t] > 0) {
-		this->set_dirty();
-		//		this->set_request_dirty();
+	if (isInit) {
+		// each molecule becomes 1 fragment
+		this->fHA[write_t] += this->totalHA[write_t];	// during initialization
+	} else {
+		// each molecule becomes 1 fragment
+		this->fHA[write_t] += this->totalHA[read_t];
 	}
 
-	/* Request hatching two fragmented hyaluronans on neighboring patches for 
-	 * each hyaluronan */
+	// remove all original HA molecules
+	this->rmvAllHAs();
 
 
-#ifndef OPT_ECM
-	vector<int> *HAlife = this->HAlife[write_t];
-#endif
-	int nHA = HAlife->size();
-
-	// Kills all alive hyaluronans and fragment
-	for (int iHA = 0; iHA < nHA; iHA++)
-	{
-
-		newfragments = 0;
-
-		if (HAlife->at(iHA) == 0) continue;
-#ifdef OPT_ECM
-		rmvHA(iHA);
-#else
-		HAlife[iHA] = 0;
-#endif
-
-		// Request one fragmented hyaluronan at a random inbounds neighboring patch
-
-		// TODO(Caroline) Might want to make the radius = 2
-		std::random_shuffle(&dn[0], &dn[27]);
-		for (int i = 0; i < 27; i++) {
-			dX = dx[dn[i]];
-			dY = dy[dn[i]];
-			dZ = dz[dn[i]];
-			if (newfragments >= 2) break;
-			if (ix + dX < 0 || ix + dX >= nx || iy + dY < 0 || iy + dY >= ny || iz + dZ < 0 || iz + dZ >= nz) continue;
-			int in = (ix + dX) + (iy + dY)*nx + (iz + dZ)*nx*ny;
-#ifdef OPT_FECM_REQUEST
-			this->ECMWorldPtr->worldECM[in].addHAFragment();
-#else   // OPT_FECM_REQUEST
-			//'dX + dY*3 + dZ*3*3 + 13' determines which neighbor in radius 1
-			this->requestfHA[dX + dY*3 + dZ*3*3 + 13]++;
-			// Alert change in status of hyaluronan on this patch
-			this->ECMWorldPtr->worldECM[in].set_dirty_from_neighbors();
-#endif	// OPT_FECM_REQUEST
-			newfragments++;
-		}
-
-	}
-
-//#ifdef VISUALIZATION
-			// Update ECM polymer map
-			this->ECMWorldPtr->setECM(this->index, m_hya, 0);
-//#endif	// VISUALIZATION
+	//#ifdef VISUALIZATION
+	// Update ECM polymer map
+	this->ECMWorldPtr->resetECM(this->index, m_hya);
+	//#endif	// VISUALIZATION
 
 
-
-	this->isEmpty();
 }
 
 void ECM::updateECM() {
@@ -606,25 +492,24 @@ void ECM::updateECM() {
 #ifdef OPT_FECM_REQUEST
 	if (this->request_dirty)
 	{
-		if (ocollagen[read_t] + ncollagen[read_t] + fcollagen[read_t] + fcollagenrequest > MAX_COL) {
-			cout << "  Error fcollagen request" << endl;
-		} else if (oelastin[read_t] + nelastin[read_t] + felastin[read_t] + felastinrequest > MAX_ELA){
-			cout << "  Error felastin request" << endl;
-		} else if (HA[read_t] + fHA[read_t] + fHArequest > MAX_HYA) {
-			cout << "  Error fcollagen request" << endl;
-		} else {
-			// Fragmented ECM proteins serve as danger signals once
-			this->fcollagen[write_t] += fcollagenrequest;
-			this->fcDangerSignal[write_t] += fcollagenrequest;
-			this->felastin[write_t] += felastinrequest;
-			this->feDangerSignal[write_t] += felastinrequest;
-			this->fHA[write_t] += fHArequest;
-			this->fHADangerSignal[write_t] += fHArequest;
-			this->isEmpty();
-		}
+		//		if (polymer_col + monomer_col[read_t] + fragmnt_col[read_t] + fcollagenrequest > MAX_COL) {
+		//			cout << "  Error fcollagen request" << endl;
+		//		} else if (polymer_ela + monomer_ela[read_t] + fragmnt_ela[read_t] + felastinrequest > MAX_ELA){
+		//			cout << "  Error felastin request" << endl;
+		//		} else if (totalHA[read_t] + fHA[read_t] + fHArequest > MAX_HYA) {
+		//			cout << "  Error fcollagen request" << endl;
+		//		} else {
+		// Fragmented ECM proteins serve as danger signals once
+		this->fragmnt_col[write_t] += fcollagenrequest;
+		this->fcDangerSignal[write_t] += fcollagenrequest;
+		this->fragmnt_ela[write_t] += felastinrequest;
+		this->feDangerSignal[write_t] += felastinrequest;
+		this->fHA[write_t] += fHArequest;
+		this->fHADangerSignal[write_t] += fHArequest;
+		//		}
 		// NS: Check semantics
-		this->fcollagen[read_t] = this->fcollagen[write_t];
-		this->felastin[read_t] = this->felastin[write_t];
+		this->fragmnt_col[read_t] = this->fragmnt_col[write_t];
+		this->fragmnt_ela[read_t] = this->fragmnt_ela[write_t];
 		this->fHA[read_t] = this->fHA[write_t];
 
 		this->fcollagenrequest = 0;
@@ -653,8 +538,8 @@ void ECM::updateECM() {
 				/* self_neighbor_in is the index of this ECM manager in the list of
 				 * its neighbor's list of neighbors. */
 				int self_neighbor_in = (-dX[i]) + (-dY[i])*3 + (-dZ)*3*3 + 13;
-				fcollagenrequest += neighborECMPtr->requestfcollagen[self_neighbor_in];
-				felastinrequest += neighborECMPtr->requestfelastin[self_neighbor_in];
+				fcollagenrequest += neighborECMPtr->requestfragmnt_col[self_neighbor_in];
+				felastinrequest += neighborECMPtr->requestfragmnt_ela[self_neighbor_in];
 				fHArequest += neighborECMPtr->requestfHA[self_neighbor_in];
 			}
 		}
@@ -666,8 +551,8 @@ void ECM::updateECM() {
 					// Try another neighbor if this one is out of bounds
 					if (ix + dX < 0 || ix + dX >= nx || iy + dY < 0 || iy + dY >= ny || iz + dZ < 0 || iz + dZ >= nz) continue;
 					in = (ix + dX) + (iy + dY)*nx + (iz + dZ)*nx*ny;
-					int a = ECMWorldPtr->worldECM[in].requestfcollagen[(-dX) + (-dY)*3 + (-dZ)*3*3 + 13];
-					int b = ECMWorldPtr->worldECM[in].requestfelastin[(-dX) + (-dY)*3 + (-dZ)*3*3 + 13];
+					int a = ECMWorldPtr->worldECM[in].requestfragmnt_col[(-dX) + (-dY)*3 + (-dZ)*3*3 + 13];
+					int b = ECMWorldPtr->worldECM[in].requestfragmnt_ela[(-dX) + (-dY)*3 + (-dZ)*3*3 + 13];
 					int c = ECMWorldPtr->worldECM[in].requestfHA[(-dX) + (-dY)*3 + (-dZ)*3*3 + 13];
 					if (a != 0) {
 						//cout << "  fcollagen requested at " << ix + iy*nx + iz*nx*ny << " by " << in << endl;
@@ -687,24 +572,23 @@ void ECM::updateECM() {
 #endif
 
 		// Fragmented ECM requests can only be accepted if there is enough space. // TODO(Kim): INSERT REF?
-		if (ocollagen[read_t] + ncollagen[read_t] + fcollagen[read_t] + fcollagenrequest > MAX_COL) {
-			cout << "  Error fcollagen request" << endl;
-		} else if (oelastin[read_t] + nelastin[read_t] + felastin[read_t] + felastinrequest > MAX_ELA) {
-			cout << "  Error felastin request" << endl;
-		} else if (HA[read_t] + fHA[read_t] + fHArequest > MAX_HYA) {
-			cout << "  Error fcollagen request" << endl;
-		} else {
-			// Fragmented ECM proteins serve as danger signals once
-			this->fcollagen[write_t] += fcollagenrequest;
-			this->fcDangerSignal[write_t] += fcollagenrequest;
-			this->felastin[write_t] += felastinrequest;
-			this->feDangerSignal[write_t] += felastinrequest;
-			this->fHA[write_t] += fHArequest;
-			this->fHADangerSignal[write_t] += fHArequest;
-			this->isEmpty();
-		}
-		this->fcollagen[read_t] = this->fcollagen[write_t];
-		this->felastin[read_t] = this->felastin[write_t];
+		//		if (polymer_col + monomer_col[read_t] + fragmnt_col[read_t] + fcollagenrequest > MAX_COL) {
+		//			cout << "  Error fcollagen request" << endl;
+		//		} else if (polymer_ela + monomer_ela[read_t] + fragmnt_ela[read_t] + felastinrequest > MAX_ELA) {
+		//			cout << "  Error felastin request" << endl;
+		//		} else if (HA[read_t] + fHA[read_t] + fHArequest > MAX_HYA) {
+		//			cout << "  Error fcollagen request" << endl;
+		//		} else {
+		// Fragmented ECM proteins serve as danger signals once
+		this->fragmnt_col[write_t] += fcollagenrequest;
+		this->fcDangerSignal[write_t] += fcollagenrequest;
+		this->fragmnt_ela[write_t] += felastinrequest;
+		this->feDangerSignal[write_t] += felastinrequest;
+		this->fHA[write_t] += fHArequest;
+		this->fHADangerSignal[write_t] += fHArequest;
+		//		}
+		this->fragmnt_col[read_t] = this->fragmnt_col[write_t];
+		this->fragmnt_ela[read_t] = this->fragmnt_ela[write_t];
 		this->fHA[read_t] = this->fHA[write_t];
 
 #ifdef OPT_ECM
@@ -721,82 +605,64 @@ void ECM::updateECM() {
 #endif
 		/*
 		this->empty[read_t] = this->empty[write_t];
-		this->ocollagen[read_t] = this->ocollagen[write_t];
-		this->ncollagen[read_t] = this->ncollagen[write_t];
-		this->oelastin[read_t] = this->oelastin[write_t];
-		this->nelastin[read_t] = this->nelastin[write_t];
+		this->monomer_col[read_t] = this->monomer_col[write_t];
+		this->monomer_ela[read_t] = this->monomer_ela[write_t];
 		this->HA[read_t] = this->HA[write_t];
 		 */
-		// Convert ocollagen (tropocollagen monomer) to ncollagen (polymer)
-		int o_nCollRatio = 2;
-		int o_nElasRatio = 2;
+		// Convert polymer_col (troppolymer_col monomer) to monomer_col (polymer)
+		int mp_CollRatio = CONV_RATE_COL;//2;
+		int mp_ElasRatio = CONV_RATE_ELA;//2;
 
-		int ocoll = this->ocollagen[read_t];
-		int oelas = this->oelastin[read_t];
+		int mcoll = this->monomer_col[read_t];
+		int melas = this->monomer_ela[read_t];
 
-		int leftoverOcoll = ocoll%o_nCollRatio;
-		int leftoverOelas = oelas%o_nElasRatio;
+		float npc_floor;
+		float npe_floor;
+		float nha_new = this->totalHA[write_t] - this->totalHA[read_t];
 
-		// Turn o<ECM> to n<ECM> (monomer to polymer)
-		this->ncollagen[write_t] += ocoll/o_nCollRatio;
-		this->ncollagen[read_t]  =  this->ncollagen[write_t];
-		this->nelastin[write_t]  += oelas/o_nElasRatio;
-		this->nelastin[read_t]   =  this->nelastin[write_t];
-//#ifdef VISUALIZATION
-		// Update ECM polymer map
-		// DEBUG vis
-		if (this->indice[2] == 14)
-			this->ECMWorldPtr->incECM(this->index, m_col, (ocoll/o_nCollRatio));
-		this->ECMWorldPtr->incECM(this->index, m_ela, (oelas/o_nElasRatio));
-//#endif	// VISUALIZATION
+		//		if (nha_new > 0.0f) this->ECMWorldPtr->incECM(this->index, m_hya, nha_new);
+		// Added in addHA
 
-		// Combine leftover monomer with newly deposited monomer
-		this->ocollagen[write_t] += leftoverOcoll;
-		this->oelastin[write_t]  += leftoverOelas;
-
-		// Synchronize
-		this->empty[read_t] = this->empty[write_t];
-		this->ocollagen[read_t] = this->ocollagen[write_t];
-		this->ncollagen[read_t] = this->ncollagen[write_t];
-		this->oelastin[read_t] = this->oelastin[write_t];
-		this->nelastin[read_t] = this->nelastin[write_t];
-		this->HA[read_t] = this->HA[write_t];
-
-		// Reset o<ECM>[write_t]
-		                // Note: [write_t] field is use as buffer for amount added earlier in this tick
-		//       It does NOT accumulate values from ealier ticks
-		this->ocollagen[write_t] = 0;
-		this->oelastin[write_t]  = 0;
-
-		// Get rid of all dead hyaluronans
-#ifdef OPT_ECM
-		vector<int> *vec = this->HAlife;
-#else
-		vector<int> *vec = this->HAlife[write_t];
-#endif
-		vector<int>::iterator first	= vec->begin();
-		for (vector<int>::iterator it = first; it != vec->end();) {
-			int life = *it;
-			if (life <= 0) {
-				it = vec->erase(it);
-			} else {
-				++it;
-			}
+		if (mcoll >= mp_CollRatio) {      // enough monomers to convert
+			float np = mcoll/mp_CollRatio;
+			float npc_floor = std::floor(np);
+			this->polymer_col += npc_floor;
+			this->monomer_col[write_t] = np-npc_floor;     // monomer after conversion
+			this->ECMWorldPtr->incECM(this->index, m_col, npc_floor);
 		}
 
-#ifndef OPT_ECM
-		this->HAlife->at(read_t) = this->HAlife->at(write_t);
-#endif
+		if (melas >= mp_ElasRatio) {      // enough monomers to convert
+			float np = melas/mp_ElasRatio;
+			float npe_floor = std::floor(np);
+			this->polymer_ela += npe_floor;
+			this->monomer_ela[write_t] = np-npe_floor;     // monomer after conversion
+			this->ECMWorldPtr->incECM(this->index, m_ela, npe_floor);
+		}
+
+		// Synchronize
+		this->monomer_col[read_t] = this->monomer_col[write_t];
+		this->monomer_ela[read_t] = this->monomer_ela[write_t];
+		this->totalHA[read_t] = this->totalHA[write_t];
+
+		//#ifdef VISUALIZATION
+		// Update ECM polymer map
+		// DEBUG vis
+		//if (this->indice[2] == 14)
+
+
+
+
+		//#endif        // VISUALIZATION
+
+		// Get rid of all dead hyaluronans
+		this->rmvDeadHAs();
+
 		this->fcDangerSignal[read_t] = this->fcDangerSignal[write_t];
 		this->feDangerSignal[read_t] = this->feDangerSignal[write_t];
 		this->fHADangerSignal[read_t] = this->fHADangerSignal[write_t];
-		this->scarIndex[read_t] = this->scarIndex[write_t];
 #ifdef OPT_ECM
 	}	// if (this->dirty)
 #endif
-
-	// If number of oECM exceed threshold, replace with nECM 
-	//  define ocollagen to ncollagen (collagen molecule) conversion threshold, after sensitivity analysis
 
 
 	// Remove all dirty flags
@@ -805,65 +671,83 @@ void ECM::updateECM() {
 	this->reset_dirty_from_neighbors();
 #endif	// ! OPT_FECM_REQUEST
 
-
-
 }
 
-void ECM::isEmpty() {
-	int totalcollagen = ocollagen[write_t] + ncollagen[write_t] + fcollagen[write_t] ;
-	int totalelastin = oelastin[write_t] + nelastin[write_t] + felastin[write_t];
-	int totalHA = HA[write_t] + fHA[write_t];
-	if (totalcollagen + totalelastin + totalHA == 0) {
-		this->empty[write_t] = true;
-	} else {
-		this->empty[write_t] = false;
-	}
-}
-
-
-void ECM::addHAs(int nHA)
+void ECM::addMonomerEla(float nEla)
 {
+#pragma omp atomic
+	this->monomer_ela[write_t] += nEla;
 
-	this->lock();		// prevent data race
-
-	this->HA[write_t] += nHA;
-	for (int i = 0; i < nHA; i++)
-	{
 #ifdef OPT_ECM
-		this->HAlife->push_back(100);
-#else
-		this->HAlife[write_t]->push_back(100);
-		this->HAlife[read_t]->push_back(100);
+	this->set_dirty();
 #endif
+}
+
+void ECM::addPolymerEla(float nEla)
+{
+#pragma omp atomic
+	this->polymer_ela += nEla;
+
+#ifdef OPT_ECM
+	this->set_dirty();
+#endif
+}
+
+void ECM::addHAs(int expTick, float nHA)
+{
+	// nHA already converted to relative unit in Fibroblast::make_hyaluronans()
+
+	float currHA = 0.0f;
+	int tick = expTick;
+	// default life = 100 ticks
+	if (expTick == -1) tick = this->ECMWorldPtr->getTick() + 100;
+
+
+	//	this->lock(); 		// prevent data race
+#ifdef _OMP
+#pragma omp critical
+#endif
+	{
+		// find other HAs with the same expiration tick
+		ITERATOR_HL currHA_it = HAlife.find(tick);
+
+		if (currHA_it != HAlife.end())
+		{
+			// get current amount a key 'tick'
+			currHA = HAlife.at(tick);
+			// add new amount to original amount
+			currHA += nHA;
+
+			// add total amount to the map
+			currHA_it->second = currHA;
+
+		}
+
+		// update total HA with NEW amount
+		this->totalHA[write_t] += nHA;
+
+		//#ifdef VISUALIZATION
+		// Update ECM polymer map
+		this->ECMWorldPtr->incECM(this->index, m_hya, nHA);
+		//#endif	// VISUALIZATION
+
 	}
-
-//#ifdef VISUALIZATION
-	// Update ECM polymer map
-	this->ECMWorldPtr->incECM(this->index, m_hya, nHA);
-//#endif	// VISUALIZATION
-
-	this->unlock();	// prevent data race
+	//	this->unlock();	// prevent data race
 
 #ifdef OPT_ECM
 	this->set_dirty();
 #endif
 
-#ifdef DEBUG_HA_SYNC
-	if (!checknHAbool()) {
-		printf("\tadd HA\n");
-		exit(-1);
-	}
-#endif	// DEBUG_HA_SYNC
 }
 
 bool ECM::isModifiedHA()
 {
-	return (this->HA[read_t]) != (this->HA[write_t]);
+	return (this->totalHA[read_t]) != (this->totalHA[write_t]);
 }
 
-int ECM::getnHA()
+float ECM::getnHA()
 {
-	return this->HA[read_t];
+	return this->totalHA[read_t];
 }
 
 int ECM::getnfHA()
@@ -871,130 +755,98 @@ int ECM::getnfHA()
 	return this->fHA[read_t];
 }
 
-int ECM::getnHAlife()
-{
-	int nHA = 0;
-	for (std::vector<int>::iterator it = HAlife->begin(); it != HAlife->end(); ++it)
-	{
-		if (*it != 0) nHA++;
-	}
-	return nHA;
-}
 
-bool ECM::rmvHA(int iHA)
+void ECM::rmvHA(int tick)
 {
+
+	float removedHA = 0.0f;
+
+	// find the amount of HAs with the specified expiration tick
+	ITERATOR_HL rmvHA_it = HAlife.find(tick);
+	if (rmvHA_it != HAlife.end()) removedHA = HAlife.at(tick);
+	else return;
+
+
+	// remove total amount to the map
+	this->HAlife.erase(rmvHA_it);
+	// update total HA with the amount removed
+	this->totalHA[write_t] -= removedHA;
+
+
+	//#ifdef VISUALIZATION
+	// Update ECM polymer map
+	this->ECMWorldPtr->decECM(this->index, m_hya, removedHA/MAX_HYA);
+	//#endif    // VISUALIZATION
+
+
 #ifdef OPT_ECM
-	if (this->HAlife->size() <= iHA) return false;
-	if (this->HAlife->at(iHA) == 0)     return false;
-	this->HAlife->at(iHA) = 0;
 	this->set_dirty();
-#else
-	if (this->HAlife[write_t]->size() <= iHA) return false;
-	if (this->HAlife[write_t].at(iHA) == 0)     return false;
-	this->HAlife[write_t]->at(iHA) = 0;
 #endif
-	this->HA[write_t]--;
 
-#ifdef DEBUG_HA_SYNC
-	if (!checknHAbool()) {
-		printf("\tremove HA\n");
-		exit(-1);
-	}
-#endif	// DEBUG_HA_SYNC
-
-	return true;
 }
 
-void ECM::checkHAdiff()
+void ECM::rmvDeadHAs()
 {
-	int diff = this->HA[write_t] - this->HA[read_t];
-	if ((diff != 1) & (diff != 0)) {printf("DIFF: %d\n", diff); exit(-1);}
+	int tick = this->ECMWorldPtr->getTick();
+	this->rmvHA(tick);
 }
 
-void ECM::checknHA()
+void ECM::rmvAllHAs()
 {
-	int nHA1 = this->HA[write_t];
-	int nHA2 = this->getnHAlife();
-	if (nHA1 != nHA2)
-	{
-		printf("ECM[%d, %d, %d] -- nHA1: %d\tnHA2: %d\n", indice[0], indice[1], indice[2],
-				nHA1, nHA2);
-		exit(-1);
-	}
-}
+	// reset HAlife map
+	this->HAlife.clear();
 
-bool ECM::checknHAbool()
-{
-	int nHA1 = this->HA[write_t];
-	int nHA2 = this->getnHAlife();
-	if (nHA1 != nHA2)
-	{
-		printf("ECM[%d, %d, %d] -- nHA1: %d\tnHA2: %d\n", indice[0], indice[1], indice[2],
-				nHA1, nHA2);
-		return false;
-	}
-	return true;
-}
+	// reset total HA
+	this->totalHA[write_t] = 0;
 
-bool ECM::killHA(int iHA)
-{
+	// update ECM polymer map
+	//#ifdef VISUALIZATION
+	// Update ECM polymer map
+	this->ECMWorldPtr->resetECM(this->index, m_hya);
+	//#endif    // VISUALIZATION
 #ifdef OPT_ECM
-	if (this->HAlife->at(iHA) <= 0) return false;
-	this->HAlife->at(iHA) = 0;
-#else
-	if (this->HAlife[write_t]->at(iHA) <= 0) return false;
-	this->HAlife[write_t]->at(iHA);
-#endif
-	this->HA[write_t]--;
-	return true;
-}
-
-bool ECM::killHA(std::vector<int>::iterator itHA)
-{
-	if (*itHA <= 0) return false;
-	*itHA = 0;
-	this->HA[write_t]--;
-	return true;
-}
-
-bool ECM::decHAlife(int iHA)
-{
-
-#ifdef DEBUG_HA_SYNC
-	if (!checknHAbool()) {
-		printf("\t(1) dec HA\n");
-		exit(-1);
-	}
-#endif	// DEBUG_HA_SYNC
-
-	int oldlife = this->HAlife->at(iHA);
-	int oldHA = this->HA[write_t];
-
-#ifdef OPT_ECM
-	if (this->HAlife->at(iHA) <= 0) return false;
-	int life = --(this->HAlife->at(iHA));
-#else
-	if (this->HAlife[write_t]->at(iHA) <= 0) return false;
-	int life = --(this->HAlife[write_t]->at(iHA));
-#endif
-	if (life == 0) this->HA[write_t]--;
-
-	return true;
-
-}
-
-void ECM::addColls(int nColls)
-{
-
 	this->set_dirty();
+#endif
+}
+
+
+void ECM::addMonomerCol(float nColls)
+{
+
 #pragma omp atomic
-	this->ocollagen[write_t] += nColls;
+	this->monomer_col[write_t] += nColls;
+
+#ifdef OPT_ECM
+	this->set_dirty();
+#endif
+
+}
+
+void ECM::addPolymerCol(float nColls)
+{
+
+#pragma omp atomic
+	this->polymer_col += nColls;
+
+#ifdef OPT_ECM
+	this->set_dirty();
+#endif
 
 }
 
 int ECM::getnColl()
 {
-	return this->ocollagen[read_t];
+	return this->polymer_col;
+}
+
+bool ECM::isEmpty()
+{
+	float total = monomer_col[read_t] + monomer_ela[read_t] +
+			fragmnt_col[read_t] + fragmnt_ela[read_t] +
+			polymer_col + polymer_ela +
+			totalHA[read_t] + fHA[read_t];
+
+	return (total <= 0.0f);
 }
 
 void ECM::resetrequests() {
