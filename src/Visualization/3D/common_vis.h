@@ -34,6 +34,7 @@
 
 //#define GLM_MESSAGES
 #define GLM_FORCE_CXX98
+// TODO: Change directory
 #include </fs/HPC_ABMs/GitProjects/vocalcord-cpuabm-v5/glm/glm/glm.hpp>
 #include </fs/HPC_ABMs/GitProjects/vocalcord-cpuabm-v5/glm/glm/gtc/matrix_transform.hpp>
 #include </fs/HPC_ABMs/GitProjects/vocalcord-cpuabm-v5/glm/glm/gtx/compatibility.hpp>

@@ -81,6 +81,14 @@ enum ecm_i{
 	m_ecmtotal
 };
 
+// LP section index
+enum lp_i{
+    lp_di,
+    lp_ii,
+    lp_si,
+    lp_total
+};
+
 /* Colors of patches and agents for visualization with Paraview 3.0
  * (Kitware(Clifton Park, New York), Sandia National Labs(Livermore, CA),
  * CSimSoft(American Fork, Utah)). */
@@ -135,13 +143,12 @@ enum patches_t {
   tissue = 2,
   epithelium = 3,
   capillary = 4,
-  damage = 5,
-  DAMAGE = 5,	// 'damage' is a name of a field in Patch. Need fixing.
+  pdamage = 5,
   unidentifiable = 6,
-  SLP = 7,
-  ILP = 8,
-  DLP = 9,
-  muscle = 10
+//  SLP = 7,
+//  ILP = 8,
+//  DLP = 9,
+//  muscle = 10
 };
 
 

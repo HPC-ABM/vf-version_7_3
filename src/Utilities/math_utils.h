@@ -1,3 +1,8 @@
+#ifndef MATH_UTILS_H_
+#define MATH_UTILS_H_
+
+#pragma once
+
 #include "../World/Usr_World/woundHealingWorld.h"
 
 #include <string>
@@ -8,47 +13,14 @@ class WHWorld;
 using namespace std;
 namespace util {
 
+int threadSafeRand(unsigned *seed_arr);
 
-bool divisible(long double a, long double b)
-{
-    bool result;
-#if 1
-    if(fabsl(((roundl(a/b)*b)- a)) <= (1E-9*b) ) {
-        result = true;
-    } else {
-        result = false;
-    }
-#else
-    if( fabsl(remainderl(a,b)) <= (1E-9*b ) ){
-        result = true;
-    } else {
-        result = false;
-    }
+float randFloatRange(float a, float b, unsigned *seed_arr);
+
+bool divisible(long double a, long double b);
+
+bool divisible(float a, float b);
+
+}
+
 #endif
-    // printf("divisible(%Lg, %Lg): %Lg, %Lg,%d\n", a, b, roundl(a/b), fabsl(((roundl(a/b)*b)-a)), result);
-    return(result);
-}
-
-bool divisible(float a, float b)
-{
-    bool result;
-#if 1
-    if(fabs(((roundf(a/b)*b)- a)) <= (1E-6*b) ) {
-        result = true;
-    } else {
-        result = false;
-    }
-#else
-    if( fabs(remainderl(a,b)) <= (1E-6*b ) ){
-        result = true;
-    } else {
-        result = false;
-    }
-#endif
-    // printf("divisible(%Lg, %Lg): %Lg, %Lg,%d\n", a, b, roundl(a/b), fabsl(((roundl(a/b)*b)-a)), result);
-    return(result);
-}
-
-
-
-}

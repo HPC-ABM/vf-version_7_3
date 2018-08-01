@@ -42,13 +42,14 @@ typedef float VolumeType;
 
 extern "C" void setTextureFilterMode(bool bLinearFilter);
 extern "C" void bufferECMmap(cudaMemcpy3DParms copyParams);
-extern "C" void initCuda(void *h_volume, cudaExtent volumeSize, cudaMemcpy3DParms &copyParams);
+extern "C" void initCuda(void *h_volume, cudaExtent volumeSize, cudaMemcpy3DParms &copyParams, ecm_i ecmType);
 extern "C" void freeCudaBuffers();
 extern "C" void render_kernel(dim3 gridSize, dim3 blockSize, uint *d_output, uint imageW, uint imageH,
                               float density, float brightness, float transferOffset, float transferScale);
 extern "C" void render_kernel_dim(dim3 gridSize, dim3 blockSize, uint *d_output, uint nx, uint ny, uint nz,
 															    uint imageW, uint imageH,
-                                  float density, float brightness, float transferOffset, float transferScale);
+                                  float density, float brightness, float transferOffset, float transferScale,
+                                  ecm_i ecmType);
 extern "C" void copyInvViewMatrix(float *invViewMatrix, size_t sizeofMatrix);
 
 

@@ -133,34 +133,7 @@ class WHChemical: public FieldVariable {
 
   // TODO: Make private
 
-#ifdef OPT_CHEM
 
-#ifdef CHEM_PACK8
-  CS8 *pChem;
-  CS8 *dChem;
-  CS8 *tChem;
-
-  CS3 *grads;       // gradients
-#elif defined (CHEM_PACK4)
-  CS4 *pChem[2];
-  CS4 *dChem[2];
-  CS4 *tChem[2];
-
-  CS3 *grads;       // gradients
-#else
-  float *pChem[8];
-  float *dChem[8];
-  float *tChem[8];
-
-  float *grads[3];
-  float *pfibgrad, *pmacgrad, *pneugrad;       // gradients
-#endif
-
-  float *total;
-
-
-
-#else		// OPT_CHEM
 #ifdef GPU_DIFFUSE
 
     /* The following variables keep track of a patch's cytokine level immediately
@@ -195,7 +168,7 @@ class WHChemical: public FieldVariable {
     // Keep track of the total cytokine levels in the world
     float total[8];
 //    float totalTNF, totalTGF, totalFGF, totalMMP8, totalIL1beta, totalIL6, totalIL8,totalIL10; 
-#endif		// OPT_CHEM
+
 
     float *pbaseline;
 

@@ -141,7 +141,7 @@ void Neutrophil::die() {
 
 void Neutrophil::neu_cellFunction() {
   int in = this->index[read_t];
-  int totaldamage = ((Agent::agentWorldPtr)->worldPatch)->numOfEachTypes[damage];
+  int totaldamage = ((Agent::agentWorldPtr)->worldPatch)->numOfEachTypes[pdamage];
 #ifdef OPT_CHEM
   float patchTNF = this->agentWorldPtr->WHWorldChem->getPchem(TNF, in);
   float patchIL10 = this->agentWorldPtr->WHWorldChem->getPchem(IL10, in);
@@ -274,7 +274,7 @@ void Neutrophil::aneu_cellFunction() {
    * DEATH                                                                 *
    *************************************************************************/
   // Activated neutrophils might die once the damage is cleared
-	int totaldamage = ((Agent::agentWorldPtr)->worldPatch)->numOfEachTypes[damage];
+	int totaldamage = ((Agent::agentWorldPtr)->worldPatch)->numOfEachTypes[pdamage];
 #ifndef CALIBRATION
 	if (totaldamage == 0 && rollDice(10)) {  // TODO(Kim): INSERT REFS?
 #else  // CALIBRATION

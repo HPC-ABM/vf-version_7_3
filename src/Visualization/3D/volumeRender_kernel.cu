@@ -20,19 +20,27 @@
 #include <helper_cuda.h>
 #include <helper_math.h>
 
+#include "../../enums.h"
+
 
 typedef unsigned int  uint;
 typedef unsigned char uchar;
 
-cudaArray *d_volumeArray = 0;
-cudaArray *d_transferFuncArray;
+cudaArray *d_volumeArray[m_ecmtotal] = {0};
+cudaArray *d_transferFuncArrayCol = {0};
+cudaArray *d_transferFuncArrayEla = {0};
+cudaArray *d_transferFuncArrayHya = {0};
 
 //typedef unsigned char VolumeType;
 typedef float VolumeType;
 
-texture<VolumeType, 3, cudaReadModeElementType> tex;
+texture<VolumeType, 3, cudaReadModeElementType> texCol;
+texture<VolumeType, 3, cudaReadModeElementType> texEla;
+texture<VolumeType, 3, cudaReadModeElementType> texHya;
 //texture<VolumeType, 3, cudaReadModeNormalizedFloat> tex;         // 3D texture
-texture<float4, 1, cudaReadModeElementType>         transferTex; // 1D transfer function texture
+texture<float4, 1, cudaReadModeElementType>     transferTexCol; // 1D transfer function texture
+texture<float4, 1, cudaReadModeElementType>     transferTexEla;
+texture<float4, 1, cudaReadModeElementType>     transferTexHya;
 
 typedef struct
 {
@@ -151,12 +159,12 @@ d_render(uint *d_output, uint imageW, uint imageH,
     {
         // read from 3D texture
         // remap position to [0, 1]
-        float sample = tex3D(tex, pos.x*0.5f+0.5f, pos.y*0.5f+0.5f, pos.z*0.5f+0.5f);
+        float sample = tex3D(texCol, pos.x*0.5f+0.5f, pos.y*0.5f+0.5f, pos.z*0.5f+0.5f);
 
         //sample *= 64.0f;    // scale for 10-bit data
 
         // lookup in transfer function texture
-        float4 col = tex1D(transferTex, (sample-transferOffset)*transferScale);
+        float4 col = tex1D(transferTexCol, (sample-transferOffset)*transferScale);
 
         col.w *= density;
 
@@ -191,7 +199,7 @@ d_render(uint *d_output, uint imageW, uint imageH,
 __global__ void
 d_render_dim(uint *d_output, uint nx, uint ny, uint nz, uint imageW, uint imageH,
          float density, float brightness,
-         float transferOffset, float transferScale)
+         float transferOffset, float transferScale, ecm_i ecmType)
 {
     const int maxSteps = 500;
     const float tstep = 0.01f;
@@ -246,12 +254,31 @@ d_render_dim(uint *d_output, uint nx, uint ny, uint nz, uint imageW, uint imageH
     	  float posx = (pos.x + x_halfwidth)/(2.0f*x_halfwidth);
     	  float posy = (pos.y + y_halfwidth)/(2.0f*y_halfwidth);
     	  float posz = (pos.z + z_halfwidth)/(2.0f*z_halfwidth);
-        float sample = tex3D(tex, posx, posy, posz);
 
-        //sample *= 64.0f;    // scale for 10-bit data
+    	  float sample;
+    	  float4 col;
 
-        // lookup in transfer function texture
-        float4 col = tex1D(transferTex, (sample-transferOffset)*transferScale);
+    	  switch (ecmType)
+    	  {
+    	  case m_col:
+    	  	sample = tex3D(texCol, posx, posy, posz);
+
+    	  	//sample *= 64.0f;    // scale for 10-bit data
+
+    	  	// lookup in transfer function texture
+    	  	col = tex1D(transferTexCol, (sample-transferOffset)*transferScale);
+    	  	break;
+    	  case m_ela:
+    	  	sample = tex3D(texEla, posx, posy, posz);
+    	  	// lookup in transfer function texture
+    	  	col = tex1D(transferTexEla, (sample-transferOffset)*transferScale);
+    	  	break;
+    	  case m_hya:
+    	  	sample = tex3D(texHya, posx, posy, posz);
+    	  	// lookup in transfer function texture
+    	  	col = tex1D(transferTexHya, (sample-transferOffset)*transferScale);
+    	  	break;
+    	  }
 
         col.w *= density;
 
@@ -289,7 +316,9 @@ d_render_dim(uint *d_output, uint nx, uint ny, uint nz, uint imageW, uint imageH
 extern "C"
 void setTextureFilterMode(bool bLinearFilter)
 {
-    tex.filterMode = bLinearFilter ? cudaFilterModeLinear : cudaFilterModePoint;
+    texCol.filterMode = bLinearFilter ? cudaFilterModeLinear : cudaFilterModePoint;
+    texEla.filterMode = bLinearFilter ? cudaFilterModeLinear : cudaFilterModePoint;
+    texHya.filterMode = bLinearFilter ? cudaFilterModeLinear : cudaFilterModePoint;
 }
 
 extern "C"
@@ -299,52 +328,294 @@ void bufferECMmap(cudaMemcpy3DParms copyParams)
 }
 
 extern "C"
-void initCuda(void *h_volume, cudaExtent volumeSize, cudaMemcpy3DParms &copyParams)
+void initCuda(void *h_volume, cudaExtent volumeSize, cudaMemcpy3DParms &copyParams, ecm_i ecmType)
 {
     // create 3D array
     cudaChannelFormatDesc channelDesc = cudaCreateChannelDesc<VolumeType>();
-    checkCudaErrors(cudaMalloc3DArray(&d_volumeArray, &channelDesc, volumeSize));
+    checkCudaErrors(cudaMalloc3DArray(&(d_volumeArray[ecmType]), &channelDesc, volumeSize));
 
     // copy data to 3D array
-//    cudaMemcpy3DParms copyParams = {0};
     copyParams.srcPtr   = make_cudaPitchedPtr(h_volume, volumeSize.width*sizeof(VolumeType), volumeSize.width, volumeSize.height);
-    copyParams.dstArray = d_volumeArray;
+    copyParams.dstArray = d_volumeArray[ecmType];
     copyParams.extent   = volumeSize;
     copyParams.kind     = cudaMemcpyHostToDevice;
     checkCudaErrors(cudaMemcpy3D(&copyParams));
 
-    // set texture parameters
-    tex.normalized = true;                      // access with normalized texture coordinates
-    tex.filterMode = cudaFilterModeLinear;      // linear interpolation
-    tex.addressMode[0] = cudaAddressModeClamp;  // clamp texture coordinates
-    tex.addressMode[1] = cudaAddressModeClamp;
-
-    // bind array to 3D texture
-    checkCudaErrors(cudaBindTextureToArray(tex, d_volumeArray, channelDesc));
-
-    // create transfer function texture
-    float4 transferFunc[] =
+    //create transfer function texture
+    switch(ecmType)
+		{
+    case m_col:
     {
-        {  0.5, 0.0, 0.2, 0.0 },      // 0.0
-        {  0.5, 0.0, 0.2, 0.100 },
-        {0.576, 1.439, 1.000, 0.1000 },  // 0.1
-        {1.000, 0.753, 0.796, 0.300 }, // 0.2
-        {0.000, 0.749, 1.000, 0.400 },  // 0.3
-        {0.000, 0.749, 1.000, 0.500 },  // 0.4
-        {0.498, 1.000, 0.831, 0.600 },  // 0.5
-        {1.000, 0.489, 0.314, 0.700 }, // 0.6
-        {1.000, 0.750, 0.700, 0.750 }, // 0.7
-        {1.000, 1.000, 0.000, 0.800 }, // 0.8
-        {0.500, 1.000, 0.200, 0.900 }, // 0.9
-        {0.000, 1.000, 0.000, 1.000 }, // 1.0
-        {0.999, 1.000, 0.999, 1.000 }, // 1.0
-    };
+    	// Collagen
+    	float4 transferFunc[] =
+    	{
+    			{  0.00,  0.00,  0.00, 0.0, },	// 0.00
+    			{  1.00,  0.00,  0.00, 0.5, },	// 0.05 - SLP ILP
+    			{  1.00,  0.30,  0.30, 0.8, },	// 0.10 - SLP ILP
+    			{  0.00,  0.00,  0.00, 0.0, },	// 0.15 - SLP ILP
+    			{  0.80,  0.15,  0.10, 0.2, }, // 0.20 - DLP ILP SLP
+    			{  0.80,  0.15,  0.10, 0.3, }, // 0.25 - DLP
+    			{  0.80,  0.15,  0.10, 0.4, }, // 0.30 - DLP
+    			{  0.80,  0.15,  0.10, 0.5, }, // 0.35 - DLP
+    			{  0.80,  0.15,  0.10, 0.6, }, // 0.40 - DLP
+    			{  0.80,  0.15,  0.10, 0.7, }, // 0.45
+    			{  0.80,  0.15,  0.10, 0.8, }, // 0.50
+    			{  0.80,  0.15,  0.10, 0.9, }, // 0.55
+    			{  0.85,  0.10,  0.15, 0.8, }, // 0.60
+    			{  0.90,  0.10,  0.15, 0.7, }, // 0.65
+    			{  0.95,  0.10,  0.10, 0.6, }, // 0.70
+    			{  1.00,  0.10,  0.10, 0.5, }, // 0.75
+    			{  1.00,  0.10,  0.10, 0.6, }, // 0.80
+    			{  1.00,  0.10,  0.10, 0.7, }, // 0.85
+    			{  1.00,  0.20,  0.20, 0.8, }, // 0.90
+    			{  1.00,  0.30,  0.30, 0.9, }, // 0.95
+    			{  1.00,  0.60,  0.00, 1.0, }, // 1.00
+    			{  0.60,  0.40,  0.32, 1.0, },
+    	};
+//    	float4 transferFunc[] =
+//    	{
+//    			{  0.0,  0.0,  0.0, 0.0, },	// 0.00
+//    			{  1.0,  0.0,  0.0, 0.5, },	// 0.05 - SLP ILP
+//    			{  0.0,  0.0,  0.0, 0.0, },	// 0.10 - SLP ILP
+//    			{  0.0,  0.0,  0.0, 0.0, },	// 0.15 - SLP ILP
+//    			{  0.0,  0.0,  0.0, 0.0, }, // 0.20 - DLP ILP SLP
+//    			{  0.0,  0.0,  0.0, 0.0, }, // 0.25 - DLP
+//    			{  1.0,  0.0,  0.0, 0.2, }, // 0.30 - DLP
+//    			{  1.0,  0.0,  0.0, 0.2, }, // 0.35 - DLP
+//    			{  1.0,  0.0,  0.0, 0.2, }, // 0.40 - DLP
+//    			{  1.0,  0.0,  0.0, 0.2, }, // 0.45
+//    			{  1.0,  0.0,  0.0, 0.2, }, // 0.50
+//    			{  1.0,  0.0,  0.0, 0.3, }, // 0.55
+//    			{  1.0,  0.0,  0.0, 0.4, }, // 0.60
+//    			{  1.0,  0.0,  0.0, 0.5, }, // 0.65
+//    			{  1.0,  0.0,  0.0, 0.6, }, // 0.70
+//    			{  1.0,  0.0,  0.0, 0.7, }, // 0.75
+//    			{  1.0,  0.0,  0.0, 0.8, }, // 0.80
+//    			{  1.0,  0.1,  0.1, 1.0, }, // 0.85
+//    			{  1.0,  0.2,  0.2, 0.5, }, // 0.90
+//    			{  1.0,  0.3,  0.3, 0.7, }, // 0.95
+//    			{  1.0,  0.6,  0.0, 0.8, }, // 1.00
+//    	};
+      // set texture parameters
+      texCol.normalized = true;                      // access with normalized texture coordinates
+      texCol.filterMode = cudaFilterModeLinear;      // linear interpolation
+      texCol.addressMode[0] = cudaAddressModeClamp;  // clamp texture coordinates
+      texCol.addressMode[1] = cudaAddressModeClamp;
 
-    // Good for black bg
+      // bind array to 3D texture
+      checkCudaErrors(cudaBindTextureToArray(texCol, d_volumeArray[ecmType], channelDesc));
+
+      cudaChannelFormatDesc channelDesc2 = cudaCreateChannelDesc<float4>();
+      cudaArray *d_transferFuncArrayCol;
+      checkCudaErrors(cudaMallocArray(&d_transferFuncArrayCol, &channelDesc2, sizeof(transferFunc)/sizeof(float4), 1));
+      checkCudaErrors(cudaMemcpyToArray(d_transferFuncArrayCol, 0, 0, transferFunc, sizeof(transferFunc), cudaMemcpyHostToDevice));
+
+      transferTexCol.filterMode = cudaFilterModeLinear;
+      transferTexCol.normalized = true;    // access with normalized texture coordinates
+      transferTexCol.addressMode[0] = cudaAddressModeClamp;   // wrap texture coordinates
+
+      // Bind the array to the texture
+      checkCudaErrors(cudaBindTextureToArray(transferTexCol, d_transferFuncArrayCol, channelDesc2));
+    	break;
+    }
+
+    case m_ela:
+    {
+      // Elastin
+      float4 transferFunc[] =
+      {
+      		{  0.0,  0.0,  0.0, 0.0, },	// 0.00
+      		{  0.0,  1.0,  0.0, 0.5, },	// 0.05 - SLP ILP
+      		{  0.0,  0.0,  0.0, 0.0, },	// 0.10 - SLP ILP
+      		{  0.63, 0.12,  0.4, 0.3, },	// 0.15 - SLP ILP
+      		{  0.63, 0.12,  0.4, 0.4, }, // 0.20 - DLP ILP SLP
+      		{  0.63, 0.12,  0.4, 0.5, }, // 0.25 - DLP
+      		{  0.63, 0.12,  0.4, 0.6, }, // 0.30 - DLP
+      		{  0.63, 0.12,  0.4, 0.7, }, // 0.35 - DLP
+      		{  0.63, 0.12,  0.4, 0.8, }, // 0.40 - DLP
+      		{  0.63, 0.12,  0.4, 0.9, }, // 0.45
+      		{  0.0, 1.0,  0.30, 1.0, }, // 0.50
+      		{  0.0, 1.0,  0.30, 1.0, }, // 0.55
+      		{  0.0, 1.0,  0.30, 1.0, }, // 0.60
+      		{  0.0, 1.0,  0.30, 1.0, }, // 0.65
+      		{  0.0, 1.0,  0.30, 1.0, }, // 0.70
+      		{  0.0, 1.0,  0.30, 1.0, }, // 0.75
+      		{  0.0,  0.0,  0.0, 0.0, }, // 0.80
+      		{  0.0, 1.0,  0.30, 1.0, }, // 0.85
+      		{  0.0, 1.0,  0.40, 0.5, }, // 0.90
+      		{  0.0, 1.0,  0.50, 0.7, }, // 0.95
+      		{  0.0, 1.0,  0.60, 1.0, }, // 1.00
+      };
+      // set texture parameters
+      texEla.normalized = true;                      // access with normalized texture coordinates
+      texEla.filterMode = cudaFilterModeLinear;      // linear interpolation
+      texEla.addressMode[0] = cudaAddressModeClamp;  // clamp texture coordinates
+      texEla.addressMode[1] = cudaAddressModeClamp;
+
+      // bind array to 3D texture
+      checkCudaErrors(cudaBindTextureToArray(texEla, d_volumeArray[ecmType], channelDesc));
+
+      cudaChannelFormatDesc channelDesc2 = cudaCreateChannelDesc<float4>();
+      cudaArray *d_transferFuncArrayEla;
+      checkCudaErrors(cudaMallocArray(&d_transferFuncArrayEla, &channelDesc2, sizeof(transferFunc)/sizeof(float4), 1));
+      checkCudaErrors(cudaMemcpyToArray(d_transferFuncArrayEla, 0, 0, transferFunc, sizeof(transferFunc), cudaMemcpyHostToDevice));
+
+      transferTexEla.filterMode = cudaFilterModeLinear;
+      transferTexEla.normalized = true;    // access with normalized texture coordinates
+      transferTexEla.addressMode[0] = cudaAddressModeClamp;   // wrap texture coordinates
+
+      // Bind the array to the texture
+      checkCudaErrors(cudaBindTextureToArray(transferTexEla, d_transferFuncArrayEla, channelDesc2));
+
+    	break;
+    }
+
+    case m_hya:
+    {
+      // Hyaluronan
+      float4 transferFunc[] =
+      {
+      		{  0.0,  0.00,  0.00, 0.0, },	// 0.00
+      		{  0.0,  0.00,  1.00, 0.5, },	// 0.05 - SLP ILP
+      		{  0.3,  0.30,  1.00, 0.8, },	// 0.10 - SLP ILP
+      		{  0.0,  0.00,  0.00, 0.0, },	// 0.15 - SLP ILP
+      		{  1.0,  0.43,  0.78, 0.2, }, // 0.20 - DLP ILP SLP
+      		{  1.0,  0.43,  0.78, 0.3, }, // 0.25 - DLP
+      		{  1.0,  0.43,  0.78, 0.4, }, // 0.30 - DLP
+      		{  1.0,  0.43,  0.78, 0.5, }, // 0.35 - DLP
+      		{  1.0,  0.43,  0.78, 0.6, }, // 0.40 - DLP
+      		{  1.0,  0.43,  0.78, 0.7, }, // 0.45
+      		{  1.0,  0.43,  0.78, 0.8, }, // 0.50
+      		{  1.0,  0.43,  0.78, 0.9, }, // 0.55
+      		{  0.8,  0.33,  0.85, 0.8, }, // 0.60
+      		{  0.5,  0.23,  0.90, 0.7, }, // 0.65
+      		{  0.3,  0.13,  0.95, 0.6, }, // 0.70
+      		{  0.0,  0.00,  1.00, 0.5, }, // 0.75
+      		{  0.1,  0.10,  1.00, 0.6, }, // 0.80
+      		{  0.2,  0.20,  1.00, 0.7, }, // 0.85
+      		{  0.3,  0.30,  1.00, 0.8, }, // 0.90
+      		{  0.4,  0.40,  1.00, 0.9, }, // 0.95
+      		{  0.7,  0.70,  1.00, 1.0, }, // 1.00
+      };
+      // set texture parameters
+      texHya.normalized = true;                      // access with normalized texture coordinates
+      texHya.filterMode = cudaFilterModeLinear;      // linear interpolation
+      texHya.addressMode[0] = cudaAddressModeClamp;  // clamp texture coordinates
+      texHya.addressMode[1] = cudaAddressModeClamp;
+
+      // bind array to 3D texture
+      checkCudaErrors(cudaBindTextureToArray(texHya, d_volumeArray[ecmType], channelDesc));
+
+      cudaChannelFormatDesc channelDesc2 = cudaCreateChannelDesc<float4>();
+      cudaArray *d_transferFuncArrayHya;
+      checkCudaErrors(cudaMallocArray(&d_transferFuncArrayHya, &channelDesc2, sizeof(transferFunc)/sizeof(float4), 1));
+      checkCudaErrors(cudaMemcpyToArray(d_transferFuncArrayHya, 0, 0, transferFunc, sizeof(transferFunc), cudaMemcpyHostToDevice));
+
+      transferTexHya.filterMode = cudaFilterModeLinear;
+      transferTexHya.normalized = true;    // access with normalized texture coordinates
+      transferTexHya.addressMode[0] = cudaAddressModeClamp;   // wrap texture coordinates
+
+      // Bind the array to the texture
+      checkCudaErrors(cudaBindTextureToArray(transferTexHya, d_transferFuncArrayHya, channelDesc2));
+
+
+    	break;
+    }
+
+    default:
+    {
+    	// WEF
+    	// White bg
+    	float4 transferFunc[] =
+    	{
+    			{  0.0,  0.0,  0.0, 0.0, },
+    			{  1.0,  0.0,  0.0, 1.0, },
+    			{  1.0,  0.0,  0.0, 1.0, },
+    			{  0.97, 0.8, 0.72, 1.0, },
+    			{  0.97, 0.8, 0.72, 0.5, },
+    			{  0.80, 0.6, 0.52, 0.7, },
+    			{  0.60, 0.4, 0.32, 1.0, },//0.5, },
+    	};
+
+//    	// Black bg
+//    	float4 transferFunc[] =
+//    	{
+//    			{  0.0,  0.0,  0.0, 0.0, },
+//    			{  1.0,  0.0,  0.0, 1.0, },
+//    			{  1.0,  0.0,  0.0, 1.0, },
+//    			{  0.97, 0.8, 0.72, 1.0, },
+//    			{  0.97, 0.4, 0.30, 1.0, },
+//    			{  0.97, 0.6, 0.50, 0.7, },
+//    			{  0.97, 0.8, 0.72, 0.8, },//0.5, },
+//		  };
+      // set texture parameters
+      texCol.normalized = true;                      // access with normalized texture coordinates
+      texCol.filterMode = cudaFilterModeLinear;      // linear interpolation
+      texCol.addressMode[0] = cudaAddressModeClamp;  // clamp texture coordinates
+      texCol.addressMode[1] = cudaAddressModeClamp;
+
+      // bind array to 3D texture
+      checkCudaErrors(cudaBindTextureToArray(texCol, d_volumeArray[ecmType], channelDesc));
+
+      cudaChannelFormatDesc channelDesc2 = cudaCreateChannelDesc<float4>();
+      cudaArray *d_transferFuncArrayCol;
+      checkCudaErrors(cudaMallocArray(&d_transferFuncArrayCol, &channelDesc2, sizeof(transferFunc)/sizeof(float4), 1));
+      checkCudaErrors(cudaMemcpyToArray(d_transferFuncArrayCol, 0, 0, transferFunc, sizeof(transferFunc), cudaMemcpyHostToDevice));
+
+      transferTexCol.filterMode = cudaFilterModeLinear;
+      transferTexCol.normalized = true;    // access with normalized texture coordinates
+      transferTexCol.addressMode[0] = cudaAddressModeClamp;   // wrap texture coordinates
+
+      // Bind the array to the texture
+      checkCudaErrors(cudaBindTextureToArray(transferTexCol, d_transferFuncArrayCol, channelDesc2));
+
+    	break;
+    }
+
+		}
+
+
+//        float4 transferFunc[] =
+//        {
+//        		{  0.0, 0.0, 0.0, 0.0, },
+//        		{  1.0, 0.0, 0.0, 0.1, },
+//        		{  0.0, 0.0, 0.0, 0.0, },
+//        		{  0.0, 0.0, 0.0, 0.0, },
+//        		{  1.0, 0.0, 0.0, 0.00001, },//0.1
+//        		{  0.97, 0.8, 0.72, 0.01, },
+//        		{  0.0, 0.0, 0.0, 0.001, },
+//        		{  0.0, 0.0, 0.0, 0.001, },
+//        		{  0.0, 0.0, 0.0, 0.001, },		// red
+//        		{  1.0, 0.0, 0.0, 0.001, },		// red
+//        		{  0.97, 0.8, 0.72, 0.01, },		// red
+//        		{  0.97, 0.8, 0.72, 0.01, },		// red
+//        		//    		{  1.0, 0.0, 0.0, 0.1, },		// red
+//        		{  0.97, 0.8, 0.72, 0.12, },		// flesh
+//        };
+
+
 //    float4 transferFunc[] =
 //    {
-//        {  0.0, 0.0, 0.0, 0.0 },      // 0.0
-//        {0.576, 1.439, 1.000, 0.200 },  // 0.1
+//    		{  0.0, 0.0, 0.0, 0.0, },
+//    		{  1.0, 0.0, 0.0, 0.1, },
+//    		{  0.0, 0.0, 0.0, 0.0, },
+//    		{  0.0, 0.0, 0.0, 0.0, },
+//    		{  1.0, 0.0, 0.0, 0.00001, },//0.1
+//    		{  0.97, 0.8, 0.72, 0.01, },
+//    		{  0.0, 0.0, 0.0, 0.001, },
+//    		{  0.0, 0.0, 0.0, 0.001, },
+//    		{  0.0, 0.0, 0.0, 0.001, },		// red
+//    		{  1.0, 0.0, 0.0, 0.001, },		// red
+//    		{  0.97, 0.8, 0.72, 0.01, },		// red
+//    		{  0.97, 0.8, 0.72, 0.01, },		// red
+//    		//    		{  1.0, 0.0, 0.0, 0.1, },		// red
+//    		{  0.97, 0.8, 0.72, 0.12, },		// flesh
+//    };
+//    float4 transferFunc[] =
+//    {
+//        {  0.5, 0.0, 0.2, 0.0 },      // 0.0
+//        {  0.5, 0.0, 0.2, 0.100 },
+//        {0.576, 1.439, 1.000, 0.1000 },  // 0.1
 //        {1.000, 0.753, 0.796, 0.300 }, // 0.2
 //        {0.000, 0.749, 1.000, 0.400 },  // 0.3
 //        {0.000, 0.749, 1.000, 0.500 },  // 0.4
@@ -354,65 +625,23 @@ void initCuda(void *h_volume, cudaExtent volumeSize, cudaMemcpy3DParms &copyPara
 //        {1.000, 1.000, 0.000, 0.800 }, // 0.8
 //        {0.500, 1.000, 0.200, 0.900 }, // 0.9
 //        {0.000, 1.000, 0.000, 1.000 }, // 1.0
-//    };
-//
-//    float4 transferFunc[] =
-//    {
-////        {  0.0, 0.0, 0.0, 0.0 },		// 0.0
-//        {1.000, 1.000, 1.000, 0.500 },	// 0.1
-//        {1.000, 0.753, 0.796, 0.1000 },
-//        {1.000, 0.000, 0.000, 0.100 },	// 0.1
-//        {1.000, 0.000, 0.000, 0.100 },	// 0.1
-//        {1.000, 0.000, 0.000, 0.100 },	// 0.1
-//        {0.980, 0.502, 0.447, 0.0100 },		// 0.2
-//        {0.980, 0.502, 0.447, 0.0100 },		// 0.3
-//        {0.980, 0.502, 0.547, 0.0020 },		// 0.4
-//        {0.980, 0.502, 0.747, 0.0010 },		// 0.5
-//        {0.933, 0.510, 0.933, 0.008 },		// 0.6
-//        {0.840, 0.412, 0.927, 0.006 },		// 0.7
-//        {0.740, 0.312, 0.907, 0.003 },		// 0.8
-//        {0.640, 0.212, 0.897, 0.002 },		// 0.9
-//        {0.541, 0.169, 0.886, 0.001}, 		// 1.0
-//        {0.541, 0.169, 0.886, 0.0001}, 		// 1.0
-//        {0.541, 0.169, 0.886, 0.0001}, 		// 1.0
-//        {0.541, 0.169, 0.886, 0.0001}, 		// 1.0
-//        {0.541, 0.169, 0.886, 0.0001}, 		// 1.0
-//        {0.541, 0.169, 0.886, 0.0001}, 		// 1.0
-//        {0.541, 0.169, 0.886, 0.0001}, 		// 1.0
-//        {0.541, 0.169, 0.886, 0.0001}, 		// 1.0
-//        {0.541, 0.169, 0.886, 0.0001}, 		// 1.0
-//        {0.541, 0.169, 0.886, 0.0001}, 		// 1.0
-//        {0.541, 0.169, 0.886, 0.0001}, 		// 1.0
-//        {  0.0, 0.0, 0.0, 0.0 },		// 0.0
+//        {0.999, 1.000, 0.999, 1.000 }, // 1.0
 //    };
 
-//    float4 transferFunc[] =
-//    {
-//        {  0.0, 0.0, 0.0, 0.0, },
-////        {1.000, 0.412, 0.706, 0.2},	// pink
-//        {  0.0, 0.0, 1.0, 0.5, },
-//        {  0.0, 1.0, 0.0, 0.8, },		// red
-//        {  1.0, 0.0, 0.0, 1.0, },		// red
-//    };
 
-    cudaChannelFormatDesc channelDesc2 = cudaCreateChannelDesc<float4>();
-    cudaArray *d_transferFuncArray;
-    checkCudaErrors(cudaMallocArray(&d_transferFuncArray, &channelDesc2, sizeof(transferFunc)/sizeof(float4), 1));
-    checkCudaErrors(cudaMemcpyToArray(d_transferFuncArray, 0, 0, transferFunc, sizeof(transferFunc), cudaMemcpyHostToDevice));
 
-    transferTex.filterMode = cudaFilterModeLinear;
-    transferTex.normalized = true;    // access with normalized texture coordinates
-    transferTex.addressMode[0] = cudaAddressModeClamp;   // wrap texture coordinates
-
-    // Bind the array to the texture
-    checkCudaErrors(cudaBindTextureToArray(transferTex, d_transferFuncArray, channelDesc2));
 }
 
 extern "C"
 void freeCudaBuffers()
 {
-    checkCudaErrors(cudaFreeArray(d_volumeArray));
-    checkCudaErrors(cudaFreeArray(d_transferFuncArray));
+	for(int ei = 0; ei < m_ecmtotal; ei++) {
+    checkCudaErrors(cudaFreeArray(d_volumeArray[ei]));
+	}
+
+	checkCudaErrors(cudaFreeArray(d_transferFuncArrayCol));
+	checkCudaErrors(cudaFreeArray(d_transferFuncArrayEla));
+	checkCudaErrors(cudaFreeArray(d_transferFuncArrayHya));
 }
 
 extern "C"
@@ -425,10 +654,10 @@ void render_kernel(dim3 gridSize, dim3 blockSize, uint *d_output, uint imageW, u
 
 extern "C"
 void render_kernel_dim(dim3 gridSize, dim3 blockSize, uint *d_output, uint nx, uint ny, uint nz, uint imageW, uint imageH,
-                   float density, float brightness, float transferOffset, float transferScale)
+                   float density, float brightness, float transferOffset, float transferScale, ecm_i ecmType)
 {
     d_render_dim<<<gridSize, blockSize>>>(d_output, nx, ny, nz, imageW, imageH, density,
-                                      brightness, transferOffset, transferScale);
+                                      brightness, transferOffset, transferScale, ecmType);
 }
 
 extern "C"

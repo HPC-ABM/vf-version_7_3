@@ -46,7 +46,8 @@ Platelet::Platelet(int x, int y, int z) {
 	this->iz[write_t] = z;
 	this->index[write_t] = x + y*nx + z*nx*ny;
 	this->alive[write_t] = true;
-	this->life[write_t] = WHWorld::reportTick(rand_r(&(agentWorldPtr->seeds[tid]))%12 + 12, 0); // Platelets live for 12-23 hours in tissue. 0 corresponds to days. TODO(Kim): INSERT REF
+//	this->life[write_t] = WHWorld::reportTick(rand_r(&(agentWorldPtr->seeds[tid]))%12 + 12, 0); // Platelets live for 12-23 hours in tissue. 0 corresponds to days. TODO(Kim): INSERT REF
+	this->life[write_t] = WHWorld::reportTick(rand_r(&(agentWorldPtr->seeds[tid]))%25, 1); // Platelets live for 24-48 hours in tissue. 0 corresponds to days. TODO(Kim): INSERT REF
 	this->color[write_t] = cplatelet;
 	this->size[write_t] = 2;
 	this->type[write_t] = platelet;
@@ -85,7 +86,8 @@ Platelet::Platelet(Patch* patchPtr) {
 	this->iz[write_t] = patchPtr->indice[2];
 	this->index[write_t] = patchPtr->index;
 	this->alive[write_t] = true;
-	this->life[write_t] = WHWorld::reportTick(rand_r(&(agentWorldPtr->seeds[tid]))%12 + 12, 0); // Platelets live for 12-23 hours in tissue. 0 corresponds to days. TODO(Kim): INSERT REF
+//	this->life[write_t] = WHWorld::reportTick(rand_r(&(agentWorldPtr->seeds[tid]))%12 + 12, 0); // Platelets live for 12-23 hours in tissue. 0 corresponds to days. TODO(Kim): INSERT REF
+	this->life[write_t] = WHWorld::reportTick(rand_r(&(agentWorldPtr->seeds[tid]))%25, 1); // Platelets live for 24-48 hours in tissue. 0 corresponds to days. TODO(Kim): INSERT REF
 	this->color[write_t] = cplatelet;
 	this->size[write_t] = 2;
 	this->type[write_t] = platelet;
@@ -124,7 +126,11 @@ void Platelet::cellFunction() {
   // Platelet makes TGF, IL1-beta, MMP8 TODO(Kim): INSERT REF?
 #ifndef CALIBRATION
   float factor  = 1.0;//0.000001;
-  float factorIL1 = 115.0;//100.0;
+#ifdef RAT_VF
+  float factorIL1 = 11.5;//115.0;//100.0;
+#else
+  float factorIL1 = 0.00115;
+#endif
   float factorTGF = 0.000001;
 
   float TGFinc  = 0.1;

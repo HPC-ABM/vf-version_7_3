@@ -31,9 +31,9 @@ ECM* Agent::agentECMPtr = NULL;
 int Agent::nx = 0;
 int Agent::ny = 0;
 int Agent::nz = 0;
-int Agent::dZ[27] = {-1, 0, 1, -1, 0, 1, -1, 0, 1, -1, 0, 1, -1, 0, 1, -1, 0, 1, -1,  0, 1, -1, 0, 1, -1, 0, 1};    //was x
-int Agent::dY[27] = {-1, -1, -1, 0, 0, 0, 1, 1, 1, -1, -1, -1, 0, 0, 0, 1, 1, 1, -1, -1, -1, 0, 0, 0, 1, 1, 1};     //was y
-int Agent::dX[27] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1};     //was z
+int Agent::dZ[27] = {-1,  0,  1, -1,  0,  1, -1,  0,  1, -1,  0,  1, -1, 0, 1, -1, 0, 1, -1,  0,  1, -1, 0, 1, -1, 0, 1};    //was x
+int Agent::dY[27] = {-1, -1, -1,  0,  0,  0,  1,  1,  1, -1, -1, -1,  0, 0, 0,  1, 1, 1, -1, -1, -1,  0, 0, 0,  1, 1, 1};     //was y
+int Agent::dX[27] = {-1, -1, -1, -1, -1, -1, -1, -1, -1,  0,  0,  0,  0, 0, 0,  0, 0, 0,  1,  1,  1,  1, 1, 1,  1, 1, 1};     //was z
 #ifdef MODEL_3D         //3D case
 int Agent::neighbor[27] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26};
 #else	                // 2D case
@@ -213,20 +213,20 @@ void Agent::wiggle() {
 		// Calculate target index
 		int newindex = (x + dx) + (y + dy)*nx + (z + dz)*nx*ny;
 
-		// If the z-direction movement is invalid, pick a new neighbor
-		if (z + dz < 0 || z + dz >= nz) {
-			continue;
-		}
-
 		// If trying to move off the side boundaries, die
-		if (x + dx < 0 || x + dx >= nx || y + dy < 0 || y + dy >= ny) {
+		if (z + dz < 0 || z + dz >= nz || y + dy < 0 || y + dy >= ny) {
 			this->life[write_t] = 0;
 			this->die();
 			return;
 		}
 
-		// If the target patch is occupied, pick a new neighbor
-		if (Agent::agentPatchPtr[newindex].isOccupiedWrite()) {
+		// Check if target patch is valid
+		bool isValid = (x + dx >= 0 || x + dx < nx) &&  // within x-boundaries
+				!(Agent::agentPatchPtr[newindex].isOccupiedWrite()) && // not occupied
+				(Agent::agentPatchPtr[newindex].isHealthy()); // healthy
+
+		// If the target patch is not valid, pick a new neighbor
+		if (!isValid) {
 			continue;
 		}
 
@@ -267,7 +267,7 @@ void Agent::wiggle() {
 			dy = ytarget[randInt];
 			dz = ztarget[randInt];
 		} else {
-			cout << "exception! encountered by " << this->index[read_t] << " " << Agent::agentPatchPtr[newindex].type[read_t];
+			cout << "exception! encountered by Agent on " << this->index[read_t] << " " << Agent::agentPatchPtr[newindex].type[read_t];
 			cout <<  " " << Agent::agentPatchPtr[this->index[read_t]].type[read_t] << endl;
 		}
 
@@ -278,7 +278,63 @@ void Agent::wiggle() {
 			// If move() was NOT successful, pick a new neighbor
 			continue;
 		}
-	} while(++trial < 8); //TODO(Nuttiiya): Why is this here?
+	} while(++trial < 27); //TODO(Nuttiiya): Why is this here?
+
+}
+
+void Agent::wiggle_wound(){
+	int read_index;
+	// Check if the location has been modified in this tick
+	if (isModified(this->index)) {
+		// If it has, work off of the intermediate value
+		read_index = write_t;
+	} else {
+		// If it has NOT, work off of the original value
+		read_index = read_t;
+	}
+  // Location of agent in x,y,z dimensions of world.
+	int x = this->ix[read_index];
+	int y = this->iy[read_index];
+	int z = this->iz[read_index];
+  // Number of patches in x,y,z dimensions of world
+	int nx = Agent::nx;
+	int ny = Agent::ny;
+	int nz = Agent::nz;
+
+	// Wiggle with <- x bias
+	for (int dx = -1; dx <= 1; dx++) {
+//	int dx = -1;
+		for (int dy = -1; dy <= 1; dy++) {
+			for (int dz = -1; dz <= 1; dz++) {
+				// Calculate target index
+				int newindex = (x + dx) + (y + dy)*nx + (z + dz)*nx*ny;
+
+				// If trying to move off the side boundaries, die
+				if (z + dz < 0 || z + dz >= nz || y + dy < 0 || y + dy >= ny) {
+					this->life[write_t] = 0;
+					this->die();
+					return;
+				}
+
+				// Check if target patch is valid
+				bool isValid = (x + dx >= 0 || x + dx < nx) &&  // within x-boundaries
+						!(Agent::agentPatchPtr[newindex].isOccupiedWrite()) && // not occupied
+						(Agent::agentPatchPtr[newindex].isHealthy()); // healthy
+
+				// If the target patch is not valid, pick a new neighbor
+				if (!isValid) {
+					continue;
+				}
+
+				if (this->move(dx, dy, dz, read_index) == true) {
+					// If move() was successful, get out of the for loop
+					break;
+				}
+
+			}
+		}
+	}
+
 
 }
 
@@ -313,8 +369,8 @@ float Agent::meanNeighborChem(int chemIndex) {
 	return totalchemical/numberofpatches;
 }
 
-int Agent::countNeighborECM(int ECMIndex) {
-	int numberofecm = 0;
+float Agent::countNeighborECM(int ECMIndex) {
+	float numberofecm = 0.0f;
   // Location of agent in x,y,z dimensions of world.
 	int x = this->ix[read_t];
 	int y = this->iy[read_t];
@@ -333,22 +389,22 @@ int Agent::countNeighborECM(int ECMIndex) {
 				int in = (x + dX) + (y + dY)*nx + (z + dZ)*nx*ny;
 				switch (ECMIndex) {
           case oc:
-            numberofecm += Agent::agentECMPtr[in].ocollagen[read_t];
+            numberofecm += Agent::agentECMPtr[in].monomer_col[read_t];
             break;
           case nc:
-            numberofecm += Agent::agentECMPtr[in].ncollagen[read_t];
+            numberofecm += Agent::agentECMPtr[in].polymer_col;
             break;
           case fc:
-            numberofecm += Agent::agentECMPtr[in].fcollagen[read_t];
+            numberofecm += Agent::agentECMPtr[in].fragmnt_col[read_t];
             break;
           case oe:
-            numberofecm += Agent::agentECMPtr[in].oelastin[read_t];
+            numberofecm += Agent::agentECMPtr[in].monomer_ela[read_t];
             break;
           case ne:
-            numberofecm += Agent::agentECMPtr[in].nelastin[read_t];
+            numberofecm += Agent::agentECMPtr[in].polymer_ela;
             break;
           case fe:
-            numberofecm += Agent::agentECMPtr[in].felastin[read_t];
+            numberofecm += Agent::agentECMPtr[in].fragmnt_ela[read_t];
             break;
           case oha:
             numberofecm += Agent::agentECMPtr[in].getnHA();//HA[read_t];
@@ -429,7 +485,8 @@ bool Agent::moveToHighestChem(int chemIndex, bool isGrad) {
       for (int dxx = -1; dxx <= 1; dxx++) {
         if (ix + dxx < 0 || ix + dxx >= nx || iy + dyy < 0 || iy + dyy >= ny || iz + dzz < 0 || iz + dzz >= nz) continue;
         int in = (ix + dxx) + (iy + dyy)*nx + (iz + dzz)*nx*ny;
-        float currentChem = Agent::agentWorldPtr-> WHWorldChem->getLevel(chemIndex, in, isGrad);
+        float currentChem = Agent::agentWorldPtr->WHWorldChem->getLevel(chemIndex, in, isGrad);
+//        if (!Agent::agentPatchPtr[in].isHealthy) continue;
         if (currentChem > highestchem) {
           highestchem = currentChem;
           dx = dxx;

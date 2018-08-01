@@ -17,6 +17,7 @@
 #define quote(x) #x
 
 #include <float.h>
+#include <vector>
 
 #ifdef DBL_DECIMAL_DIG
   #define OP_DBL_Digs (DBL_DECIMAL_DIG)
@@ -27,6 +28,9 @@
     #define OP_DBL_Digs (DBL_DIG + 3)
   #endif
 #endif
+
+
+typedef std::vector<float> REGULATORS_T;
 
 /*****************************************************************************
  * SENSITIVITY ANALYSIS AND  CALIBRATION                                     *
@@ -42,7 +46,7 @@
 // Profile major sections of go():
 #define PROFILE_MAJOR_STEPS  // Turned this off for SA
 // Profile each cell type:
-//#define PROFILE_CELL_FUNC  // Turned this off for SA
+#define PROFILE_CELL_FUNC  // Turned this off for SA
 // Profile each section of chemical diffusion:
 //#define PROFILE_CHEM_DIFF_DETAILED
 // Profile each section of cell seeding:
@@ -73,6 +77,7 @@
 //#define OPT_CELL_SEEDING
 // TODO(Nuttiiya)
 //#define ECM_UNROLL_LOOP
+// OBSOLETE
 /* With OPT_ECM defined, we assume that we access ECM::HAlife in this order:
  * 1. Decrement life by calling decrement(int n) on HAlife in ECMFunction()
  * 2. Determine number of HA by calling HAlife.size() in fragmentHA()
@@ -109,9 +114,9 @@
 // Raw volume output time stride
 #define RAW_TIME_STRIDE 10
 // ECM initial condition factor
-#define RAW_ECM_FACTOR  0.1
+#define RAW_ECM_FACTOR  0.0002
 // ECM gradient factor
-#define RAW_dECM_FACTOR 0.9
+#define RAW_dECM_FACTOR 0.05  //2.0
 
 /*****************************************************************************
  * OPTION FLAGS                                                              *
@@ -125,15 +130,15 @@
 // Output ECM volume map as raw file
 //#define WRITE_RAW_ECM
 // Enable Biomarker Output
-#define BIOMARKER_OUTPUT
+//#define BIOMARKER_OUTPUT
 // Enable Paraview rendering
 //#define PARAVIEW_RENDERING
 // Enable In-Situ Visualization
-//#define VISUALIZATION
+#define VISUALIZATION
 // Enable overlap visualization and computation
 //#define OVERLAP_VIS
 // Enable timing functions for GL rendering
-//#define TIME_GL
+#define TIME_GL
 // Run in 3D
 #define MODEL_3D
 // Initialize Vocal Fold Morphology
@@ -244,11 +249,6 @@
 #define fractionProteinLB 0.75		// Hahn, Mariah S., et al. "Midmembranous vocal fold
 #define fractionProteinUB 0.85	   // lamina propria proteoglycans across selected species."
 																   // Annals of Otology, Rhinology & Laryngology 114.6 (2005): 451-462.
-#define COLL_UNIT					1000
-#define fibProductionTCollLB (300000/COLL_UNIT) //(12900000/COLL_UNIT) //300000
-#define fibProductionTCollUB (800000/COLL_UNIT) //(34400000/COLL_UNIT) //800000
-
-#define collagenConversion (128250/COLL_UNIT)	// conversion from tropocollagen to fiber rate
 
 
 /* Non-uniform cellularity in vocal fold lamina propria with depth 
@@ -273,21 +273,54 @@
 
 
 /*****************************************************************************
- * ECM MACROS				                                                         *
+ * ECM MACROS				                                     *
  *****************************************************************************/
 
-#ifdef HUMAN_VF
-#define MAX_COL (62*10^3)  // TODO(Kim): INSERT REF?
-#define MAX_ELA (50*10^3)  // TODO(Kim): INSERT REF?
-#define MAX_HYA (33*10^9)  // TODO(Kim): INSERT REF?
-#elif defined(RAT_VF)
-#define MAX_COL (62*10^3)  // TODO(Kim): INSERT REF?
-#define MAX_ELA (50*10^3)  // TODO(Kim): INSERT REF?
-#define MAX_HYA (33*10^9)  // TODO(Kim): INSERT REF?
+#define COL_UNIT                6       // 10^6
+#define ELA_UNIT                3       // 10^3
+#define HYA_UNIT                3       // 10^3
+
+#define AV_NORM_COL_DLP          400.0f //990.0f	//50.0f                  // 9.9e8 = 990e6 monomers/patch
+#define AV_NORM_COL_SLP          380.0f //450.0f                  // 3.8e8 = 380e6 monomers/patch
+#define AV_NORM_COL_ILP          450.0f                  // 4.5e8 = 450e6 monomers/patch
+#define AV_NORM_ELA_DLP         1900.0f                  // 1.9e6 = 1900e3 monomers/patch
+#define AV_NORM_ELA_SLP         1300.0f                  // 1.3e6 = 1300e3 monomers/patch
+#define AV_NORM_ELA_ILP          510.0f                  // 5.1e5 =  510e3 monomers/patch
+#define AV_NORM_HYA_DLP         3600.0f                  // 3.6e6 = 3600e3 polymers/patch
+#define AV_NORM_HYA_SLP         3100.0f                  // 3.1e6 = 3100e3 polymers/patch
+#define AV_NORM_HYA_ILP         3600.0f                  // 3.6e6 = 3600e3 polymers/patch
+
+#ifdef VISUALIZATION
+#define FIB_COL_PROD_RATE         17.2f					 // 1.72e7 = 17.2e6			//394.0f          // 3.94e5 = 394.0e3
+#define FIB_ELA_PROD_RATE         2000.0f          // 3.45e4 = 34.5e3
+#define FIB_HYA_PROD_RATE         400.0f          // 6.58e4 = 65.8e3
 #else
-#define MAX_COL (31*10^3)  // TODO(Kim): INSERT REF?
-#define MAX_ELA (25*10^3)  // TODO(Kim): INSERT REF?
-#define MAX_HYA (16*10^9)  // TODO(Kim): INSERT REF?
+#define FIB_COL_PROD_RATE         17.2f					 // 1.72e7 = 17.2e6			//394.0f          // 3.94e5 = 394.0e3
+#define FIB_ELA_PROD_RATE         34.5f //2000.0f          // 3.45e4 = 34.5e3
+#define FIB_HYA_PROD_RATE         65.8f //400.0f          // 6.58e4 = 65.8e3
+#endif
+
+#define MAX_MONO_COL           AV_NORM_COL_DLP
+#define MAX_MONO_ELA           AV_NORM_ELA_DLP
+#define MAX_MONO_HYA					 AV_NORM_HYA_DLP
+
+
+#define CONV_RATE_COL           AV_NORM_COL_SLP //AV_NORM_COL_ILP   //  1300e3 conversion from tropocollagen to fiber rate
+#define CONV_RATE_ELA           AV_NORM_ELA_SLP   //   380e6 conversion from tropoelastin to fiber rate
+#define CONV_RATE_HYA						AV_NORM_HYA_SLP		//   3.1e6 conversion from molecules to relative unit
+
+#ifdef HUMAN_VF
+#define MAX_COL 5.0f
+#define MAX_ELA 2.0f    //4.0f
+#define MAX_HYA 1.0f
+#elif defined(RAT_VF)
+#define MAX_COL 5.0f		//2.0f
+#define MAX_ELA 2.0f    //4.0f
+#define MAX_HYA 1.0f
+#else
+#define MAX_COL 2.0f
+#define MAX_ELA 2.0f    //4.0f
+#define MAX_HYA 1.0f
 #endif
 
 

@@ -207,7 +207,9 @@ void outputWorld_csv(WHWorld *world) {
 
 	ofstream output_file(outfilename, ios::app);
 	int f = 0; int af = 0; int m = 0; int am = 0; int n = 0; int an = 0; int plt = 0;
-	int oc = 0; int fc = 0; int nc = 0; int oe = 0; int fe = 0; int ne = 0; int HA = 0; int fHA = 0;
+	float oc = 0.0f; float fc = 0.0f; float nc = 0.0f;
+	float oe = 0.0f; float fe = 0.0f; float ne = 0.0f;
+	float HA = 0.0f; float fHA = 0.0f;
 	cout << " fibs " <<  world->fibs.actualSize() << endl;
 	cout << " macs " <<  world->macs.actualSize() << endl;
 	cout << " neus " <<  world->neus.actualSize() << endl;
@@ -268,7 +270,7 @@ void outputWorld_csv(WHWorld *world) {
 
 	//	world->countPatchType(damage);
 
-	// DEBUG
+
 	cout << "  nc  " << nc << endl;
 	cout << "  ne  " << ne << endl;
 	cout << "  HA  " << HA << endl;
@@ -284,7 +286,7 @@ void outputWorld_csv(WHWorld *world) {
 	output_file << world->WHWorldChem->total[IL10]/worldVmL << ",";
 	output_file << world->WHWorldChem->total[MMP8]/worldVmL << ",";
 	output_file << oc << "," << nc << "," << fc << "," << oe << "," ;
-	output_file << ne << "," << fe << "," << HA << "," << fHA << "," << Patch::numOfEachTypes[damage] << "," ;
+	output_file << ne << "," << fe << "," << HA << "," << fHA << "," << Patch::numOfEachTypes[pdamage] << "," ;
 	output_file << af << "," << am << "," << an << "," << f << "," << m  << ","  << n << "," << plt << endl;
 
 	output_file.close();
@@ -337,7 +339,7 @@ void patchassign_csv(WHWorld *world) {
 		for (int iy = 0; iy < ny; iy++) {
 			for (int ix = 0; ix < nx; ix++) {
 				in = ix + iy*nx + iz*nx*ny;
-				if (world->worldPatch[in].type[read_t] == damage ||
+				if (world->worldPatch[in].type[read_t] == pdamage ||
 				        world->worldPatch[in].damage[read_t] != 0) {
 					output_file << "x";
 					continue;
@@ -372,7 +374,7 @@ void patchassign_csv(WHWorld *world) {
 					output_file1 << "u";
 					continue;
 				}
-				if (world->worldPatch[in].type[read_t] == damage
+				if (world->worldPatch[in].type[read_t] == pdamage
 				        || world->worldPatch[in].damage[read_t] != 0) {
 					output_file1 << "x";
 					continue;
@@ -409,7 +411,7 @@ void patchassign_csv(WHWorld *world) {
 					output_file2 << "z";
 					continue;
 				}
-				if (world->worldPatch[in].type[read_t] == damage
+				if (world->worldPatch[in].type[read_t] == pdamage
 				        || world->worldPatch[in].damage[read_t] != 0) {
 					output_file2 << "x";
 					continue;
@@ -440,16 +442,16 @@ void patchassign_csv(WHWorld *world) {
 		for (int iy = 0; iy < ny; iy++) {
 			for (int ix = 0; ix < nx; ix++) {
 				in = ix + iy*nx + iz*nx*ny;
-				if (world->worldECM[in].oelastin[read_t] !=0 &&
+				if (world->worldECM[in].monomer_ela[read_t] !=0 &&
 				        world->worldPatch[in].damage[read_t] != 0) {
 					output_file3 << "g";
 					continue;
 				}
-				if (world->worldECM[in].oelastin[read_t] !=0) {
+				if (world->worldECM[in].monomer_ela[read_t] !=0) {
 					output_file3 << "m";
 					continue;
 				}
-				if (world->worldPatch[in].type[read_t] ==damage ||
+				if (world->worldPatch[in].type[read_t] == pdamage ||
 				        world->worldPatch[in].damage[read_t] != 0) {
 					output_file3 << "x";
 					continue;
@@ -479,11 +481,11 @@ void patchassign_csv(WHWorld *world) {
 		for (int iy = 0; iy < ny; iy++) {
 			for (int ix = 0; ix < nx; ix++) {
 				in = ix + iy*nx + iz*nx*ny;
-				if (world->worldECM[in].ocollagen[read_t] != 0) {
+				if (world->worldECM[in].monomer_col[read_t] != 0) {
 					output_file4 << "k";
 					continue;
 				}
-				if (world->worldECM[in].fcollagen[read_t] != 0) {
+				if (world->worldECM[in].fragmnt_col[read_t] != 0) {
 					output_file4 << "f";
 					continue;
 				}
@@ -512,11 +514,11 @@ void patchassign_csv(WHWorld *world) {
 		for (int iy = 0; iy < ny; iy++) {
 			for (int ix = 0; ix < nx; ix++) {
 				in = ix + iy*nx + iz*nx*ny;
-				if (world->worldECM[in].oelastin[read_t] !=0) {
+				if (world->worldECM[in].monomer_ela[read_t] !=0) {
 					output_file5 << "m";
 					continue;
 				}
-				if (world->worldECM[in].felastin[read_t] !=0) {
+				if (world->worldECM[in].fragmnt_ela[read_t] !=0) {
 					output_file5 << "f";
 					continue;
 				}
@@ -676,7 +678,7 @@ int outputColor(WHWorld* myWorld, char* fileName) {
 						epi++;
 					else if (myWorld->worldPatch[in].type[read_t] == capillary)
 						blood++;
-					else if (myWorld->worldPatch[in].type[read_t] == damage)
+					else if (myWorld->worldPatch[in].type[read_t] == pdamage)
 						black++;
 					else if (myWorld->worldPatch[in].occupiedby[read_t] == afibroblast || myWorld->worldPatch[in].occupiedby[read_t] == fibroblast)
 						fib++;
@@ -733,21 +735,21 @@ int outputECM(WHWorld* myWorld, char* fileName) {
 
                                 in = ix + iy*myWorld->nx + iz*myWorld->nx*myWorld->ny;
 
-                                if (myWorld->worldECM[in].empty[read_t] == false) {
+                                if (myWorld->worldECM[in].isEmpty() == false) {
 
-					if (myWorld->worldECM[in].oelastin[read_t] != 0 || myWorld->worldECM[in].nelastin[read_t] != 0) {
+					if (myWorld->worldECM[in].monomer_ela[read_t] != 0 || myWorld->worldECM[in].polymer_ela != 0) {
 
 						outfile << celastin << " ";
 
-					} else if ( myWorld->worldECM[in].felastin[read_t] != 0) {
+					} else if ( myWorld->worldECM[in].fragmnt_ela[read_t] != 0) {
 
 						outfile << cfelastin << " ";
 
-					} else if (myWorld->worldECM[in].ocollagen[read_t] != 0 || myWorld->worldECM[in].ncollagen[read_t] != 0) {
+					} else if (myWorld->worldECM[in].monomer_col[read_t] != 0 || myWorld->worldECM[in].polymer_col != 0) {
 
 						outfile << ccollagen << " ";
 
-					} else if ( myWorld->worldECM[in].fcollagen[read_t] != 0) {
+					} else if ( myWorld->worldECM[in].fragmnt_col[read_t] != 0) {
 
 						outfile << cfcollagen << " ";
 
