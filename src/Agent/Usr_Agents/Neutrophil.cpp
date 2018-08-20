@@ -25,7 +25,7 @@
 
 using namespace std;
 int Neutrophil::numOfNeutrophil = 0; 
-float Neutrophil::cytokineSynthesis[21] = {1, 1, 20, 1, 1, 1, 1, 250, 1, 1, 1, 1, 10, 2, 1, 0.5, 15, 100, 3, 1, 1};
+float Neutrophil::cytokineSynthesis[21] = {0.0f};
 float Neutrophil::activation[4] = {0.1, 0, 25, 10};
 float Neutrophil::death[2] = {10, 0.01};
 
@@ -201,85 +201,21 @@ void Neutrophil::aneu_cellFunction() {
   /*************************************************************************
    * CHEMICAL SYNTHESIS                                                    *
    *************************************************************************/
-  int in = this->index[read_t];
+  this->aneu_produce_cytokines();
 
-#ifdef OPT_CHEM 
-  float patchTNF = this->agentWorldPtr->WHWorldChem->getPchem(TNF, in);
-  float patchTGF = this->agentWorldPtr->WHWorldChem->getPchem(TGF, in);
-  float patchIL10 = this->agentWorldPtr->WHWorldChem->getPchem(IL10, in);
-#else		// OPT_CHEM
-  float patchTNF = this->agentWorldPtr->WHWorldChem->pTNF[in];
-  float patchTGF = this->agentWorldPtr->WHWorldChem->pTGF[in];
-  float patchIL10 = this->agentWorldPtr->WHWorldChem->pIL10[in];
-#endif		// OPT_CHEM
-  /* Activated neutrophils synthesize new cytokines in quantities dependent on
-   * the vocal treatment type. TODO(Kim): INSERT REFS? */
-  float factor = 0.0001;
-
-  float TNFinc = 0.0;
-  float MMP8inc = 0.0;
-#ifndef CALIBRATION
-  if (this->agentWorldPtr->treatmentOption == voicerest) {
-    TNFinc  = 1/(1 + patchTGF + patchIL10);
-    MMP8inc = (250 + patchTNF)/(1 + patchTGF);
-  } else if (this->agentWorldPtr->treatmentOption == resonantvoice) {
-    TNFinc  = 20/(1 + patchTGF + patchIL10);
-    MMP8inc = (10 + patchTNF*2)/(1 + patchTGF*0.5);
-  } else if (this->agentWorldPtr->treatmentOption == spontaneousspeech) {
-    TNFinc  = 1/(1 + patchTGF + patchIL10);
-    MMP8inc = 15*(100 + patchTNF*3)/(1 + patchTGF);
-  }
-
-  TNFinc  *= factor;
-  MMP8inc *= factor;
-#else  // CALIBRATION
-  if (this->agentWorldPtr->treatmentOption == voicerest) {
-    TNFinc  = Neutrophil::cytokineSynthesis[0]/
-             (Neutrophil::cytokineSynthesis[1] + patchTGF + patchIL10);
-    MMP8inc = Neutrophil::cytokineSynthesis[6]*
-             (Neutrophil::cytokineSynthesis[7] + patchTNF*Neutrophil::cytokineSynthesis[8])/
-             (Neutrophil::cytokineSynthesis[9] + patchTGF*Neutrophil::cytokineSynthesis[10]);
-
-  } else if (this->agentWorldPtr->treatmentOption == resonantvoice) {
-    TNFinc  = Neutrophil::cytokineSynthesis[2]/
-             (Neutrophil::cytokineSynthesis[3] + patchTGF + patchIL10);
-    MMP8inc = Neutrophil::cytokineSynthesis[11]*
-             (Neutrophil::cytokineSynthesis[12] + patchTNF*Neutrophil::cytokineSynthesis[13])/
-             (Neutrophil::cytokineSynthesis[14] + patchTGF*Neutrophil::cytokineSynthesis[15]);
-
-  } else if (this->agentWorldPtr->treatmentOption == spontaneousspeech) {
-    TNFinc  = Neutrophil::cytokineSynthesis[4]/
-             (Neutrophil::cytokineSynthesis[5] + patchTGF + patchIL10);
-    MMP8inc = Neutrophil::cytokineSynthesis[16]*
-             (Neutrophil::cytokineSynthesis[17] + patchTNF*Neutrophil::cytokineSynthesis[18])/
-             (Neutrophil::cytokineSynthesis[19] + patchTGF*Neutrophil::cytokineSynthesis[20]);
-  }
-#endif  // CALIBRATION
-#ifdef OPT_CHEM
-  this->agentWorldPtr->WHWorldChem->incDchem(TNF,  in, TNFinc);
-  this->agentWorldPtr->WHWorldChem->incDchem(MMP8, in, MMP8inc);
-#else		// OPT_CHEM
-  (this->agentWorldPtr->WHWorldChem->dTNF[in])  += TNFinc;
-  (this->agentWorldPtr->WHWorldChem->dMMP8[in]) += MMP8inc;
-#endif		// OPT_CHEM
-
-#ifdef PRINT_SECRETION
-  int x = this->ix[read_t];
-  int y = this->iy[read_t];
-  int z = this->iz[read_t];
-  printCytRelease(1, TNF,  x, y, z, TNFinc);
-  printCytRelease(1, MMP8, x, y, z, MMP8inc);
-#endif  // PRINT_SECRETION
   /*************************************************************************
    * DEATH                                                                 *
    *************************************************************************/
   // Activated neutrophils might die once the damage is cleared
+  int in = this->index[read_t];
+  float patchIL10 = this->agentWorldPtr->WHWorldChem->pIL10[in];
 	int totaldamage = ((Agent::agentWorldPtr)->worldPatch)->numOfEachTypes[pdamage];
 #ifndef CALIBRATION
-	if (totaldamage == 0 && rollDice(10)) {  // TODO(Kim): INSERT REFS?
+	if (totaldamage == 0 && rollDice(10))  // TODO(Kim): INSERT REFS?
 #else  // CALIBRATION
-	if (totaldamage == 0 && rollDice(Neutrophil::death[0])) {  // TODO(Kim): INSERT REFS?
+	if (totaldamage == 0 && rollDice(Neutrophil::death[0]))  // TODO(Kim): INSERT REFS?
 #endif  // CALIBRATION
+	{
 		this->die(); 
 		return;  // Return immediately after cell's death
 	}
@@ -289,7 +225,8 @@ void Neutrophil::aneu_cellFunction() {
 #else  // CALIBRATION
 	this->life[write_t] = this->life[read_t] - 1 - Neutrophil::death[1]*patchIL10;  // TODO(Kim): INSERT REFS?
 #endif  // CALIBRATION
-	if (this->life[read_t] <= 0) {
+	if (this->life[read_t] <= 0)
+	{
     this->die();
   }
 
@@ -298,3 +235,133 @@ void Neutrophil::aneu_cellFunction() {
    *************************************************************************/                                           
 	Agent::agentWorldPtr->highTNFdamage = true;
 }
+
+
+void Neutrophil::aneu_produce_cytokines() {
+		// Calculates chemical gradients and patch chemical concentrations
+		int in = this->index[read_t];
+
+		float patchTNF  = this->agentWorldPtr->WHWorldChem->pTNF[in];
+		float patchTGF  = this->agentWorldPtr->WHWorldChem->pTGF[in];
+		float patchIL10 = this->agentWorldPtr->WHWorldChem->pIL10[in];
+
+		/* Activated neutrophils synthesize new cytokines in quantities dependent on
+		 * the vocal treatment type. TODO(Kim): INSERT REFS? */
+
+		float TNFinc  = 0.0;
+		float MMP8inc = 0.0;
+
+		float tnf_cNum ;
+		float tnf_cDen ;
+		float tnf_cTGF ;
+		float tnf_cIL10;
+		float tnf_ofst ;
+
+		float mmp8_cNum;
+		float mmp8_cTNF;
+		float mmp8_cDen;
+		float mmp8_cTGF;
+		float mmp8_ofst;
+
+		tnf_ofst  = Agent::baseline[TNF];//0.0f;
+		mmp8_ofst = Agent::baseline[MMP8];//0.0f;
+
+		// Setting up, regulators, coefficients and offsets
+#ifndef CALIBRATION
+		float factor = 0.0001;
+
+		if (this->agentWorldPtr->treatmentOption == voicerest) {
+			tnf_cNum  = factor*1.0f;
+			tnf_cDen  = 1.0f;
+			tnf_cTGF  = 1.0f;
+			tnf_cIL10 = 1.0f;
+
+			mmp8_cNum  = factor*250.0f;
+			mmp8_cTNF  = factor*1.0f;
+			mmp8_cDen  = 1.0f;
+			mmp8_cTGF  = 1.0f;
+		} else if (this->agentWorldPtr->treatmentOption == resonantvoice) {
+			tnf_cNum  = factor*20.0f;
+			tnf_cDen  = 1.0f;
+			tnf_cTGF  = 1.0f;
+			tnf_cIL10 = 1.0f;
+
+			mmp8_cNum  = factor*10.0f;
+			mmp8_cTNF  = factor*2.0f;
+			mmp8_cDen  = 1.0f;
+			mmp8_cTGF  = 0.5f;
+		} else if (this->agentWorldPtr->treatmentOption == spontaneousspeech) {
+			tnf_cNum  = factor*1.0f;
+			tnf_cDen  = 1.0f;
+			tnf_cTGF  = 1.0f;
+			tnf_cIL10 = 1.0f;
+
+			mmp8_cNum  = factor*1500.0f;
+			mmp8_cTNF  = factor*45.0f;
+			mmp8_cDen  = 1.0f;
+			mmp8_cTGF  = 1.0f;
+		}
+
+		REGULATORS_T tnf_ucoefs{tnf_cNum};
+		REGULATORS_T tnf_dcoefs{tnf_cDen, tnf_cTGF, tnf_cIL10};
+		REGULATORS_T tnf_uregs{1.0f};
+		REGULATORS_T tnf_dregs{1.0f, patchTGF, patchIL10};
+
+		REGULATORS_T mmp8_ucoefs{mmp8_cNum, mmp8_cTNF};
+		REGULATORS_T mmp8_dcoefs{mmp8_cDen, mmp8_cTGF};
+		REGULATORS_T mmp8_uregs{1.0f, patchTNF};
+		REGULATORS_T mmp8_dregs{1.0f, patchTGF};
+
+#else
+		// TODO: Reorder parameters
+
+		if (this->agentWorldPtr->treatmentOption == voicerest) {
+			tnf_cNum  = 1.0f;
+			tnf_cTGF  = Neutrophil::cytokineSynthesis[0];
+			tnf_cIL10 = Neutrophil::cytokineSynthesis[1];
+
+			mmp8_cTNF  = Neutrophil::cytokineSynthesis[2];
+			mmp8_cTGF  = Neutrophil::cytokineSynthesis[3];
+		} else if (this->agentWorldPtr->treatmentOption == resonantvoice) {
+			tnf_cNum  = 1.0f;
+			tnf_cTGF  = Neutrophil::cytokineSynthesis[4];
+			tnf_cIL10 = Neutrophil::cytokineSynthesis[5];
+
+			mmp8_cTNF  = Neutrophil::cytokineSynthesis[6];
+			mmp8_cTGF  = Neutrophil::cytokineSynthesis[7];
+		} else if (this->agentWorldPtr->treatmentOption == spontaneousspeech) {
+			tnf_cNum  = 1.0f;
+			tnf_cTGF  = Neutrophil::cytokineSynthesis[8];
+			tnf_cIL10 = Neutrophil::cytokineSynthesis[9];
+
+			mmp8_cTNF  = Neutrophil::cytokineSynthesis[10];
+			mmp8_cTGF  = Neutrophil::cytokineSynthesis[11];
+		}
+
+
+		REGULATORS_T tnf_ucoefs{tnf_cNum};
+		REGULATORS_T tnf_dcoefs{tnf_cTGF, tnf_cIL10};
+		REGULATORS_T tnf_uregs{1.0f};
+		REGULATORS_T tnf_dregs{patchTGF, patchIL10};
+
+		REGULATORS_T mmp8_ucoefs{mmp8_cTNF};
+		REGULATORS_T mmp8_dcoefs{mmp8_cTGF};
+		REGULATORS_T mmp8_uregs{patchTNF};
+		REGULATORS_T mmp8_dregs{patchTGF};
+
+#endif
+
+		// Call cytokine production functions
+		TNFinc  = produce_tnf ( tnf_uregs,  tnf_dregs,  tnf_ucoefs,  tnf_dcoefs,  tnf_ofst);
+		MMP8inc = produce_mmp8(mmp8_uregs, mmp8_dregs, mmp8_ucoefs, mmp8_dcoefs, mmp8_ofst);
+
+#ifdef PRINT_SECRETION
+		int x = this->ix[read_t];
+		int y = this->iy[read_t];
+		int z = this->iz[read_t];
+		printCytRelease(3, TNF,  x, y, z, TNFinc);
+		printCytRelease(3, MMP8, x, y, z, MMP8inc);
+#endif  // PRINT_SECRETION
+
+	}
+

@@ -17,26 +17,38 @@
 #ifndef _VOLUMERENDER_KERNEL_CU_
 #define _VOLUMERENDER_KERNEL_CU_
 
+#include <assert.h>
 #include <helper_cuda.h>
 #include <helper_math.h>
 
 #include "../../enums.h"
+#include "../../common.h"
 
 
 typedef unsigned int  uint;
 typedef unsigned char uchar;
 
+//typedef unsigned char VolumeType;
+typedef float VolumeType;
+
+VolumeType *d_svBuffer[m_ecmtotal] = {0};
+//cudaArray *d_svArray[m_ecmtotal] = {0};
 cudaArray *d_volumeArray[m_ecmtotal] = {0};
 cudaArray *d_transferFuncArrayCol = {0};
 cudaArray *d_transferFuncArrayEla = {0};
 cudaArray *d_transferFuncArrayHya = {0};
 
-//typedef unsigned char VolumeType;
-typedef float VolumeType;
 
+#ifdef AVEP
+surface<void, cudaSurfaceType3D> srfCol;
+surface<void, cudaSurfaceType3D> srfEla;
+surface<void, cudaSurfaceType3D> srfHya;
+#endif	// AVEP
 texture<VolumeType, 3, cudaReadModeElementType> texCol;
 texture<VolumeType, 3, cudaReadModeElementType> texEla;
 texture<VolumeType, 3, cudaReadModeElementType> texHya;
+
+
 //texture<VolumeType, 3, cudaReadModeNormalizedFloat> tex;         // 3D texture
 texture<float4, 1, cudaReadModeElementType>     transferTexCol; // 1D transfer function texture
 texture<float4, 1, cudaReadModeElementType>     transferTexEla;
@@ -57,6 +69,295 @@ struct Ray
 
 // intersect ray with a box
 // http://www.siggraph.org/education/materials/HyperGraph/raytrace/rtinter3.htm
+
+#ifdef AVEP
+
+//Round a / b to nearest higher integer value
+int iDivUp_AVEP(int a, int b)
+{
+    return (a % b != 0) ? (a / b + 1) : (a / b);
+}
+
+#ifdef AVEP_INC
+
+__global__
+void bufferToVolumeAVEP_round0_kernel(
+		float *d_Dst,
+		float *d_Src,
+		int svW,
+		int svH,
+		int svD,
+		int volumeW,
+		int volumeH,
+		int volumeD,
+		cudaPos offset,
+		ecm_i ecmType)
+{
+	const int z = blockDim.z * blockIdx.z + threadIdx.z;
+	const int y = blockDim.y * blockIdx.y + threadIdx.y;
+	const int x = blockDim.x * blockIdx.x + threadIdx.x;
+
+	bool isInBound = (0 <= x && x < svW) &&
+			   	 	 	 	   (0 <= y && y < svH) &&
+			   	 	 	 	   (0 <= z && z < svD);
+
+
+	if (isInBound)
+	{
+
+		int vx = x + (offset.x)/sizeof(VolumeType);
+		int vy = y + offset.y;
+		int vz = z + offset.z;
+
+		float sample_dst = 0.0f;
+
+
+		switch (ecmType)
+		{
+		case m_col:
+			surf3Dread(&sample_dst, srfCol, vx * sizeof(VolumeType), vy, vz);//, cudaBoundaryModeZero);
+			break;
+		case m_ela:
+			surf3Dread(&sample_dst, srfEla, vx * sizeof(VolumeType), vy, vz);//, cudaBoundaryModeZero);
+			break;
+		case m_hya:
+			surf3Dread(&sample_dst, srfHya, vx * sizeof(VolumeType), vy, vz);//, cudaBoundaryModeZero);
+			break;
+		default:
+			surf3Dread(&sample_dst, srfCol, vx * sizeof(VolumeType), vy, vz);//, cudaBoundaryModeZero);
+			break;
+		}
+
+		// write diff to source
+		d_Src[vz*volumeW*volumeH + vy*volumeW + vx] -= sample_dst;
+		if (d_Src[vz*volumeW*volumeH + vy*volumeW + vx] == 0.0f) d_Src[vz*volumeW*volumeH + vy*volumeW + vx] = 0.4f;
+	}
+
+}
+
+__global__
+void bufferToVolumeAVEP_kernel(
+		float *d_Dst,
+		float *d_Src,
+		int svW,
+		int svH,
+		int svD,
+		int volumeW,
+		int volumeH,
+		int volumeD,
+		cudaPos offset,
+		ecm_i ecmType,
+		int incRound,
+		float incFactor)
+{
+	const int z = blockDim.z * blockIdx.z + threadIdx.z;
+	const int y = blockDim.y * blockIdx.y + threadIdx.y;
+	const int x = blockDim.x * blockIdx.x + threadIdx.x;
+
+	bool isInBound = (0 <= x && x < svW) &&
+			   	 	 	 	   (0 <= y && y < svH) &&
+			   	 	 	 	   (0 <= z && z < svD);
+
+
+	if (isInBound)
+	{
+
+		int vx = x + (offset.x)/sizeof(VolumeType);
+		int vy = y + offset.y;
+		int vz = z + offset.z;
+
+		float multiplier = ((float) (incRound + 1))*incFactor;
+		float sample = 0.0f;
+
+		switch (ecmType)
+		{
+		case m_col:
+			surf3Dread(&sample, srfCol, vx * sizeof(VolumeType), vy, vz);
+			sample += multiplier*d_Src[vz*volumeW*volumeH + vy*volumeW + vx];
+			surf3Dwrite(sample, srfCol, vx * sizeof(VolumeType), vy, vz);
+			break;
+		case m_ela:
+			surf3Dread(&sample, srfEla, vx * sizeof(VolumeType), vy, vz);
+			sample += multiplier*d_Src[vz*volumeW*volumeH + vy*volumeW + vx];
+			surf3Dwrite(sample, srfEla, vx * sizeof(VolumeType), vy, vz);
+			break;
+		case m_hya:
+			surf3Dread(&sample, srfHya, vx * sizeof(VolumeType), vy, vz);
+			sample += multiplier*d_Src[vz*volumeW*volumeH + vy*volumeW + vx];
+			surf3Dwrite(sample, srfHya, vx * sizeof(VolumeType), vy, vz);
+			break;
+		default:
+			surf3Dread(&sample, srfCol, vx * sizeof(VolumeType), vy, vz);
+			sample += multiplier*d_Src[vz*volumeW*volumeH + vy*volumeW + vx];
+			surf3Dwrite(sample, srfCol, vx * sizeof(VolumeType), vy, vz);
+			break;
+		}
+	}
+
+}
+
+extern "C"
+void bufferToVolumeAVEP(
+		float *d_Dst,
+		float *d_Src,
+		int svW,
+		int svH,
+		int svD,
+		int volumeW,
+		int volumeH,
+		int volumeD,
+		cudaPos offset,
+		ecm_i ecmType,
+		int incRound,
+		float incFactor)
+{
+  assert(d_Src != d_Dst);
+  assert(svW <= volumeW);
+  assert(svH <= volumeH);
+  assert(svD <= volumeD);
+  dim3 threads(8, 8, 4);
+  dim3 grid(iDivUp_AVEP(svW, threads.x), iDivUp_AVEP(svH, threads.y), iDivUp_AVEP(svD, threads.z));
+
+  if (!incRound)	// round 0
+  {
+    bufferToVolumeAVEP_round0_kernel<<<grid, threads>>>(
+        d_Dst,
+        d_Src,
+        svW,
+        svH,
+        svD,
+        volumeW,
+        volumeH,
+        volumeD,
+        offset,
+        ecmType
+    );
+    bufferToVolumeAVEP_kernel<<<grid, threads>>>(
+        d_Dst,
+        d_Src,
+        svW,
+        svH,
+        svD,
+        volumeW,
+        volumeH,
+        volumeD,
+        offset,
+        ecmType,
+        incRound,
+        incFactor
+    );
+  } else {
+    bufferToVolumeAVEP_kernel<<<grid, threads>>>(
+        d_Dst,
+        d_Src,
+        svW,
+        svH,
+        svD,
+        volumeW,
+        volumeH,
+        volumeD,
+        offset,
+        ecmType,
+        incRound,
+        incFactor
+    );
+  }
+
+  getLastCudaError("bufferToVolumeAVEP_kernel<<<>>> execution failed\n");
+}
+
+
+#else	// AVEP_INC
+
+
+__global__
+void bufferToVolumeAVEP_kernel(
+		float *d_Dst,
+		float *d_Src,
+		int svW,
+		int svH,
+		int svD,
+		int volumeW,
+		int volumeH,
+		int volumeD,
+		cudaPos offset,
+		ecm_i ecmType)
+{
+	const int z = blockDim.z * blockIdx.z + threadIdx.z;
+	const int y = blockDim.y * blockIdx.y + threadIdx.y;
+	const int x = blockDim.x * blockIdx.x + threadIdx.x;
+
+	bool isInBound = (0 <= x && x < svW) &&
+			   	 	 	 	   (0 <= y && y < svH) &&
+			   	 	 	 	   (0 <= z && z < svD);
+
+
+	if (isInBound)
+	{
+
+		int vx = x + (offset.x)/sizeof(VolumeType);
+		int vy = y + offset.y;
+		int vz = z + offset.z;
+
+		float sample = d_Src[z*SV_W*SV_H + y*SV_W + x];	// use buffer dimensions
+
+
+		switch (ecmType)
+		{
+		case m_col:
+			surf3Dwrite(sample, srfCol, vx * sizeof(VolumeType), vy, vz);//, cudaBoundaryModeZero);
+			break;
+		case m_ela:
+			surf3Dwrite(sample, srfEla, vx * sizeof(VolumeType), vy, vz);//, cudaBoundaryModeZero);
+			break;
+		case m_hya:
+			surf3Dwrite(sample, srfHya, vx * sizeof(VolumeType), vy, vz);//, cudaBoundaryModeZero);
+			break;
+		default:
+			surf3Dwrite(sample, srfCol, vx * sizeof(VolumeType), vy, vz);//, cudaBoundaryModeZero);
+			break;
+		}
+	}
+
+}
+
+extern "C"
+void bufferToVolumeAVEP(
+		float *d_Dst,
+		float *d_Src,
+		int svW,
+		int svH,
+		int svD,
+		int volumeW,
+		int volumeH,
+		int volumeD,
+		cudaPos offset,
+		ecm_i ecmType)
+{
+  assert(d_Src != d_Dst);
+  assert(svW <= volumeW);
+  assert(svH <= volumeH);
+  assert(svD <= volumeD);
+  dim3 threads(8, 8, 4);
+  dim3 grid(iDivUp_AVEP(svW, threads.x), iDivUp_AVEP(svH, threads.y), iDivUp_AVEP(svD, threads.z));
+
+  bufferToVolumeAVEP_kernel<<<grid, threads>>>(
+      d_Dst,
+      d_Src,
+      svW,
+      svH,
+      svD,
+      volumeW,
+      volumeH,
+      volumeD,
+      offset,
+      ecmType
+  );
+  getLastCudaError("bufferToVolumeAVEP_kernel<<<>>> execution failed\n");
+}
+
+#endif	// AVEP_INC
+#endif
 
 __device__
 int intersectBox(Ray r, float3 boxmin, float3 boxmax, float *tnear, float *tfar)
@@ -262,7 +563,6 @@ d_render_dim(uint *d_output, uint nx, uint ny, uint nz, uint imageW, uint imageH
     	  {
     	  case m_col:
     	  	sample = tex3D(texCol, posx, posy, posz);
-
     	  	//sample *= 64.0f;    // scale for 10-bit data
 
     	  	// lookup in transfer function texture
@@ -322,6 +622,117 @@ void setTextureFilterMode(bool bLinearFilter)
 }
 
 extern "C"
+void printCpyParams(cudaMemcpy3DParms cp){
+	/**
+	 *   struct cudaArray     *srcArray;
+  struct cudaPos        srcPos;
+  struct cudaPitchedPtr srcPtr;
+  struct cudaArray     *dstArray;
+  struct cudaPos        dstPos;
+  struct cudaPitchedPtr dstPtr;
+  struct cudaExtent     extent;
+  enum cudaMemcpyKind   kind;
+	 */
+	printf("copy params:\n");
+	printf("\tsrcArray: %p\n", cp.srcArray);
+	printf("\tsrcPos: %d, %d, %d\n", cp.srcPos.x, cp.srcPos.y, cp.srcPos.z);
+	printf("\tsrcPtr:\n");
+//	if(cp.srcPtr != 0)
+//	{
+		printf("\t\tpitch: %d\n", cp.srcPtr.pitch);
+		printf("\t\tptr: %p\n",   cp.srcPtr.ptr);
+		printf("\t\txsize: %d\n", cp.srcPtr.xsize);
+		printf("\t\tysize: %d\n", cp.srcPtr.ysize);
+//	}
+	printf("\tdstArray: %p\n", cp.dstArray);
+	printf("\tdstPos: %d, %d, %d\n", cp.dstPos.x, cp.dstPos.y, cp.dstPos.z);
+	printf("\tdstPtr:\n");
+//	if(cp.dstPtr != 0)
+//	{
+		printf("\t\tpitch: %d\n", cp.dstPtr.pitch);
+		printf("\t\tptr: %p\n",   cp.dstPtr.ptr);
+		printf("\t\txsize: %d\n", cp.dstPtr.xsize);
+		printf("\t\tysize: %d\n", cp.dstPtr.ysize);
+//	}
+	printf("\textent: %d, %d, %d\n", cp.extent.width, cp.extent.height, cp.extent.depth);
+}
+
+
+#ifdef AVEP
+#ifdef AVEP_INC
+
+extern "C"
+void bufferECMmapAVEP(
+		cudaMemcpy3DParms copyParams,
+		cudaMemcpy3DParms svCopyParams,
+		ecm_i ecmType,
+		int incRound,
+		float incFactor)
+{
+	if (!incRound)	// first round
+	{
+		// copy a subvolume from host into device buffer
+		printf("\t\tcopying...\n");
+		checkCudaErrors(cudaMemcpy3D(&svCopyParams));
+		printf("\t\tdone copying\n");
+	}
+
+	// copy data from device buffer to device volume array
+	printf("\t\tbuffering...\n");
+	VolumeType *d_Src = (VolumeType *) svCopyParams.dstPtr.ptr;
+	VolumeType *d_Dst = (VolumeType *) copyParams.dstArray;
+	bufferToVolumeAVEP(
+			d_Dst,
+			d_Src,
+			(svCopyParams.extent.width)/sizeof(VolumeType),
+			svCopyParams.extent.height,
+			svCopyParams.extent.depth,
+			copyParams.extent.width,
+			copyParams.extent.height,
+			copyParams.extent.depth,
+			svCopyParams.srcPos,
+			ecmType,
+			incRound,
+			incFactor);
+	printf("\t\tdone buffering\n");
+
+}
+
+#else	// AVEP_INC
+
+extern "C"
+void bufferECMmapAVEP(
+		cudaMemcpy3DParms copyParams,
+		cudaMemcpy3DParms svCopyParams,
+		ecm_i ecmType)
+{
+	// copy a subvolume from host into device buffer
+	printf("\t\tcopying...\n");
+	checkCudaErrors(cudaMemcpy3D(&svCopyParams));
+	printf("\t\tdone copying\n");
+
+	// copy data from device buffer to device volume array
+	printf("\t\tbuffering...\n");
+	VolumeType *d_Src = (VolumeType *) svCopyParams.dstPtr.ptr;
+	VolumeType *d_Dst = (VolumeType *) copyParams.dstArray;
+	bufferToVolumeAVEP(
+			d_Dst,
+			d_Src,
+			(svCopyParams.extent.width)/sizeof(VolumeType),
+			svCopyParams.extent.height,
+			svCopyParams.extent.depth,
+			copyParams.extent.width,
+			copyParams.extent.height,
+			copyParams.extent.depth,
+			svCopyParams.srcPos,
+			ecmType);
+	printf("\t\tdone buffering\n");
+
+}
+#endif	// AVEP_INC
+#endif	// AVEP
+
+extern "C"
 void bufferECMmap(cudaMemcpy3DParms copyParams)
 {
 	checkCudaErrors(cudaMemcpy3D(&copyParams));
@@ -332,13 +743,14 @@ void initCuda(void *h_volume, cudaExtent volumeSize, cudaMemcpy3DParms &copyPara
 {
     // create 3D array
     cudaChannelFormatDesc channelDesc = cudaCreateChannelDesc<VolumeType>();
-    checkCudaErrors(cudaMalloc3DArray(&(d_volumeArray[ecmType]), &channelDesc, volumeSize));
+    checkCudaErrors(cudaMalloc3DArray(&(d_volumeArray[ecmType]), &channelDesc, volumeSize, cudaArraySurfaceLoadStore));
 
     // copy data to 3D array
     copyParams.srcPtr   = make_cudaPitchedPtr(h_volume, volumeSize.width*sizeof(VolumeType), volumeSize.width, volumeSize.height);
     copyParams.dstArray = d_volumeArray[ecmType];
     copyParams.extent   = volumeSize;
     copyParams.kind     = cudaMemcpyHostToDevice;
+    // DEBUG
     checkCudaErrors(cudaMemcpy3D(&copyParams));
 
     //create transfer function texture
@@ -372,30 +784,13 @@ void initCuda(void *h_volume, cudaExtent volumeSize, cudaMemcpy3DParms &copyPara
     			{  1.00,  0.60,  0.00, 1.0, }, // 1.00
     			{  0.60,  0.40,  0.32, 1.0, },
     	};
-//    	float4 transferFunc[] =
-//    	{
-//    			{  0.0,  0.0,  0.0, 0.0, },	// 0.00
-//    			{  1.0,  0.0,  0.0, 0.5, },	// 0.05 - SLP ILP
-//    			{  0.0,  0.0,  0.0, 0.0, },	// 0.10 - SLP ILP
-//    			{  0.0,  0.0,  0.0, 0.0, },	// 0.15 - SLP ILP
-//    			{  0.0,  0.0,  0.0, 0.0, }, // 0.20 - DLP ILP SLP
-//    			{  0.0,  0.0,  0.0, 0.0, }, // 0.25 - DLP
-//    			{  1.0,  0.0,  0.0, 0.2, }, // 0.30 - DLP
-//    			{  1.0,  0.0,  0.0, 0.2, }, // 0.35 - DLP
-//    			{  1.0,  0.0,  0.0, 0.2, }, // 0.40 - DLP
-//    			{  1.0,  0.0,  0.0, 0.2, }, // 0.45
-//    			{  1.0,  0.0,  0.0, 0.2, }, // 0.50
-//    			{  1.0,  0.0,  0.0, 0.3, }, // 0.55
-//    			{  1.0,  0.0,  0.0, 0.4, }, // 0.60
-//    			{  1.0,  0.0,  0.0, 0.5, }, // 0.65
-//    			{  1.0,  0.0,  0.0, 0.6, }, // 0.70
-//    			{  1.0,  0.0,  0.0, 0.7, }, // 0.75
-//    			{  1.0,  0.0,  0.0, 0.8, }, // 0.80
-//    			{  1.0,  0.1,  0.1, 1.0, }, // 0.85
-//    			{  1.0,  0.2,  0.2, 0.5, }, // 0.90
-//    			{  1.0,  0.3,  0.3, 0.7, }, // 0.95
-//    			{  1.0,  0.6,  0.0, 0.8, }, // 1.00
-//    	};
+
+
+#ifdef AVEP
+    	// bind array to 3D surface
+    	checkCudaErrors(cudaBindSurfaceToArray(srfCol, d_volumeArray[ecmType], channelDesc));
+//    	checkCudaErrors(cudaBindSurfaceToArray(srfCol, d_volumeArray[ecmType]));
+#endif
       // set texture parameters
       texCol.normalized = true;                      // access with normalized texture coordinates
       texCol.filterMode = cudaFilterModeLinear;      // linear interpolation
@@ -404,6 +799,7 @@ void initCuda(void *h_volume, cudaExtent volumeSize, cudaMemcpy3DParms &copyPara
 
       // bind array to 3D texture
       checkCudaErrors(cudaBindTextureToArray(texCol, d_volumeArray[ecmType], channelDesc));
+
 
       cudaChannelFormatDesc channelDesc2 = cudaCreateChannelDesc<float4>();
       cudaArray *d_transferFuncArrayCol;
@@ -453,6 +849,9 @@ void initCuda(void *h_volume, cudaExtent volumeSize, cudaMemcpy3DParms &copyPara
       texEla.addressMode[1] = cudaAddressModeClamp;
 
       // bind array to 3D texture
+#ifdef AVEP
+    	checkCudaErrors(cudaBindSurfaceToArray(srfEla, d_volumeArray[ecmType], channelDesc));
+#endif
       checkCudaErrors(cudaBindTextureToArray(texEla, d_volumeArray[ecmType], channelDesc));
 
       cudaChannelFormatDesc channelDesc2 = cudaCreateChannelDesc<float4>();
@@ -473,6 +872,7 @@ void initCuda(void *h_volume, cudaExtent volumeSize, cudaMemcpy3DParms &copyPara
     case m_hya:
     {
       // Hyaluronan
+#ifdef RAT_VF
       float4 transferFunc[] =
       {
       		{  0.0,  0.00,  0.00, 0.0, },	// 0.00
@@ -497,6 +897,33 @@ void initCuda(void *h_volume, cudaExtent volumeSize, cudaMemcpy3DParms &copyPara
       		{  0.4,  0.40,  1.00, 0.9, }, // 0.95
       		{  0.7,  0.70,  1.00, 1.0, }, // 1.00
       };
+#else	// RAT_VF
+      float4 transferFunc[] =
+      {
+      		{  0.0,  0.00,  0.00, 0.0, },	// 0.00
+      		{  0.0,  0.00,  1.00, 0.5, },	// 0.05 - SLP ILP
+      		{  0.3,  0.30,  1.00, 0.8, },	// 0.10 - SLP ILP
+      		{  0.0,  0.00,  0.00, 0.0, },	// 0.15 - SLP ILP
+      		{  0.1,  0.43,  0.78, 0.2, }, // 0.20 - DLP ILP SLP
+      		{  0.2,  0.43,  0.78, 0.3, }, // 0.25 - DLP
+      		{  0.3,  0.43,  0.78, 0.4, }, // 0.30 - DLP
+      		{  0.4,  0.43,  0.78, 0.5, }, // 0.35 - DLP
+      		{  0.5,  0.43,  0.78, 0.6, }, // 0.40 - DLP
+      		{  0.6,  0.43,  0.78, 0.7, }, // 0.45
+      		{  0.7,  0.43,  0.78, 0.8, }, // 0.50
+      		{  0.7,  0.43,  0.78, 0.9, }, // 0.55
+      		{  0.8,  0.33,  0.85, 0.8, }, // 0.60
+      		{  0.5,  0.23,  0.90, 0.7, }, // 0.65
+      		{  0.3,  0.13,  0.95, 0.6, }, // 0.70
+      		{  0.0,  0.00,  1.00, 0.5, }, // 0.75
+      		{  0.1,  0.10,  1.00, 0.6, }, // 0.80
+      		{  0.2,  0.20,  1.00, 0.7, }, // 0.85
+      		{  0.3,  0.30,  1.00, 0.8, }, // 0.90
+      		{  0.4,  0.40,  1.00, 0.9, }, // 0.95
+      		{  0.3,  0.10,  1.00, 1.0, }, // 1.00
+      		{  0.0,  0.00,  1.00, 1.0, }, // 1.00
+      };
+#endif	// RAT_VF
       // set texture parameters
       texHya.normalized = true;                      // access with normalized texture coordinates
       texHya.filterMode = cudaFilterModeLinear;      // linear interpolation
@@ -504,6 +931,9 @@ void initCuda(void *h_volume, cudaExtent volumeSize, cudaMemcpy3DParms &copyPara
       texHya.addressMode[1] = cudaAddressModeClamp;
 
       // bind array to 3D texture
+#ifdef AVEP
+    	checkCudaErrors(cudaBindSurfaceToArray(srfHya, d_volumeArray[ecmType], channelDesc));
+#endif
       checkCudaErrors(cudaBindTextureToArray(texHya, d_volumeArray[ecmType], channelDesc));
 
       cudaChannelFormatDesc channelDesc2 = cudaCreateChannelDesc<float4>();
@@ -555,6 +985,9 @@ void initCuda(void *h_volume, cudaExtent volumeSize, cudaMemcpy3DParms &copyPara
       texCol.addressMode[1] = cudaAddressModeClamp;
 
       // bind array to 3D texture
+#ifdef AVEP
+    	checkCudaErrors(cudaBindSurfaceToArray(srfCol, d_volumeArray[ecmType], channelDesc));
+#endif
       checkCudaErrors(cudaBindTextureToArray(texCol, d_volumeArray[ecmType], channelDesc));
 
       cudaChannelFormatDesc channelDesc2 = cudaCreateChannelDesc<float4>();
@@ -631,6 +1064,44 @@ void initCuda(void *h_volume, cudaExtent volumeSize, cudaMemcpy3DParms &copyPara
 
 
 }
+
+#ifdef AVEP
+extern "C"
+void initCudaAVEP(
+		void *h_volume,
+		cudaExtent volumeSize,
+		cudaMemcpy3DParms &copyParams,
+		cudaMemcpy3DParms &svCopyParams,
+		ecm_i ecmType)
+{
+	initCuda(h_volume, volumeSize, copyParams, ecmType);
+
+#ifdef AVEP_INC
+	// Allocate buffer device memory
+	checkCudaErrors(cudaMalloc(&(d_svBuffer[ecmType]),
+			volumeSize.width*volumeSize.height*volumeSize.depth*sizeof(VolumeType)));
+	svCopyParams.dstPtr = make_cudaPitchedPtr(
+																			d_svBuffer[ecmType],
+																			volumeSize.width*sizeof(VolumeType),
+																			volumeSize.width,
+																			volumeSize.height);
+#else	// AVEP_INC
+	// Allocate buffer device memory
+	checkCudaErrors(cudaMalloc(&(d_svBuffer[ecmType]), SV_W*SV_H*SV_D*sizeof(VolumeType)));
+	svCopyParams.dstPtr = make_cudaPitchedPtr(
+																			d_svBuffer[ecmType],
+																			SV_W*sizeof(VolumeType),
+																			SV_W,
+																			SV_H);
+#endif	// AVEP_INC
+
+	// initialize copy params for sub-volumes
+	svCopyParams.srcPtr  = copyParams.srcPtr;
+	svCopyParams.extent = make_cudaExtent(SV_W*sizeof(VolumeType), SV_H, SV_D);
+	svCopyParams.kind = cudaMemcpyHostToDevice;
+
+}
+#endif
 
 extern "C"
 void freeCudaBuffers()

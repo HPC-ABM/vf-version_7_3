@@ -240,12 +240,7 @@ class Fibroblast: public Agent {
     void afib_produce_cytokines(float neighborHAs);
 
     float produce_tgf(REGULATORS_T uregs, REGULATORS_T dregs, REGULATORS_T coefs, float offset);
-    float produce_fgf(REGULATORS_T uregs, REGULATORS_T dregs, REGULATORS_T coefs, float offset);
-    float produce_tnf(REGULATORS_T uregs, REGULATORS_T dregs, REGULATORS_T coefs, float offset);
-    float produce_il6(REGULATORS_T uregs, REGULATORS_T dregs, REGULATORS_T coefs, float offset);
-    float produce_il8(REGULATORS_T uregs, REGULATORS_T dregs, REGULATORS_T coefs, float offset);
 
-    float calc_chem(REGULATORS_T uregs, REGULATORS_T dregs, REGULATORS_T coefs, float offset);
 
     /*
      * Description:     Case:   - Outside Wound -- Follow gradient to a healthy patch

@@ -224,6 +224,7 @@ WHWorld::WHWorld(double width, double length, double height, double plength) {
 	this->maxFCol = MAX_COL;
 	this->maxChangeFCol = FIB_COL_PROD_RATE/CONV_RATE_COL;
 
+	cout << "Instantiating ECM managers ..." << endl;
 #ifdef MODEL_3D
 #pragma omp parallel for
 #endif
@@ -235,20 +236,37 @@ WHWorld::WHWorld(double width, double length, double height, double plength) {
 			for (int ix = 0; ix < nx; ix++) {
 				int in = ix + iy*nx + iz*nx*ny;
 				this->worldECM[in]   = ECM(ix, iy, iz, in);
-//				// DEBUG vis
-//				printf("test locks %d\n", in);
-//				this->worldECM[in].addHAs(0.0f, 0.0f);
 			}
 		}
 	}
 
 	//#ifdef VISUALIZATION
+	cout << "Instantiating ECM maps ..." << endl;
+#ifdef AVEP
+	// TODO: make static
+	this->_mread  = 0;
+	this->_mwrite = 1;
+#endif// AVEP
 	// Allocate memory for ECM map
 	for (int ie = 0; ie < m_ecmtotal; ie++)
 	{
-		this->ecmMap[ie]        = new float[np];
-		this->ecmGradMap[ie]    = new float[np];
-		this->ecmPreProcMap[ie] = new float[np];
+		this->ecmMap[ie]        = new float[np]();
+		this->ecmGradMap[ie]    = new float[np]();
+		this->ecmPreProcMap[ie] = new float[np]();
+
+#ifdef AVEP
+		cout << "	Instantiating AVEP maps ..." << endl;
+#ifdef AVEP_INC
+		this->_iround = 0;
+#endif
+
+		this->mapW_AVEP = nx%SV_W == 0? nx/SV_W : (nx/SV_W) + 1;
+		this->mapH_AVEP = ny%SV_H == 0? ny/SV_H : (ny/SV_H) + 1;
+		this->mapD_AVEP = nz%SV_D == 0? nz/SV_D : (nz/SV_D) + 1;
+		printf("\t[%d x %d x %d]\n", mapW_AVEP, mapH_AVEP, mapD_AVEP);
+		this->ecmMapAVEP[_mread][ie]    = new bool[mapW_AVEP*mapH_AVEP*mapD_AVEP]();
+		this->ecmMapAVEP[_mwrite][ie]   = new bool[mapW_AVEP*mapH_AVEP*mapD_AVEP]();
+#endif
 	}
 
 	//#endif
@@ -257,6 +275,7 @@ WHWorld::WHWorld(double width, double length, double height, double plength) {
 	int dlpb = fractionSLP * nx;                  // DLP x bound
 	int ilpb = (fractionSLP + fractionILP) * nx;  // ILP x bound
 
+	cout << "Instantiating Patches ..." << endl;
 #ifdef MODEL_3D
 #pragma omp parallel for
 #endif
@@ -274,6 +293,7 @@ WHWorld::WHWorld(double width, double length, double height, double plength) {
 	}
 
 	// Allocate memory for WHWorldChem
+	cout << "Allocating memory for world chem ..." << endl;
 	this->WHWorldChem = new WHChemical(this->nx, this->ny, this->nz);
 
 
@@ -288,14 +308,18 @@ WHWorld::WHWorld(double width, double length, double height, double plength) {
 	this->initializeECM();
 	cerr << "(i2/10) initializeChem ..." << endl;
 	this->initializeChem();
+	// DEBUG
+	cerr << "(i6/10) initializeDamage ..." << endl;
+	this->initializeDamage();
+
 	cerr << "(i3/10) initializeFibroblasts ..." << endl;
 	this->initializeFibroblasts();
 	cerr << "(i4/10) initializeMacrophages ..." << endl;
 	this->initializeMacrophages();
 	cerr << "(i5/10) initializeNeutrophils ..." << endl;
 	this->initializeNeutrophils();
-	cerr << "(i6/10) initializeDamage ..." << endl;
-	this->initializeDamage();
+//	cerr << "(i6/10) initializeDamage ..." << endl;
+//	this->initializeDamage();
 
 	/* Calling update functions to synchronize read and write portion of the
 	 * attributes */
@@ -846,6 +870,23 @@ void WHWorld::initPatchChem()
 			this->WHWorldChem->total[IL10] += sum[IL10];
 		}
 	}
+
+	// initialize baseline chem per cell
+	int iFibs  = this->initialCells[0];
+	int iNeus  = this->initialCells[1];
+	int iMacs  = this->initialCells[2];
+	int iAFibs = this->initialCells[3];
+
+	Agent::baseline[TNF]     = (this->WHWorldChem->total[TNF]    *WHWorld::cytokineDecay[TNF])    /(iFibs+iNeus+iMacs);
+	Agent::baseline[TGF]     = (this->WHWorldChem->total[TGF]    *WHWorld::cytokineDecay[TGF])    /(iFibs+iMacs);
+	Agent::baseline[FGF]     = (this->WHWorldChem->total[FGF]    *WHWorld::cytokineDecay[FGF])    /(iFibs+iMacs);
+	Agent::baseline[MMP8]    = (this->WHWorldChem->total[MMP8]   *WHWorld::cytokineDecay[MMP8])   /(iNeus);
+	Agent::baseline[IL1beta] = (this->WHWorldChem->total[IL1beta]*WHWorld::cytokineDecay[IL1beta])/(iFibs+iNeus+iMacs);
+	Agent::baseline[IL6]     = (this->WHWorldChem->total[IL6]    *WHWorld::cytokineDecay[IL6])    /(iFibs+iMacs);
+	Agent::baseline[IL8]     = (this->WHWorldChem->total[IL8]    *WHWorld::cytokineDecay[IL8])    /(iFibs+iMacs);
+	Agent::baseline[IL10]    = (this->WHWorldChem->total[IL10]   *WHWorld::cytokineDecay[IL10])   /(iMacs);
+
+
 	cout << "results from inside initialization: " << this->WHWorldChem->total[TNF] << " ";
 	cout << this->WHWorldChem->total[TGF] << " " << this->WHWorldChem->total[FGF];
 	cout << " " << this->WHWorldChem->total[MMP8]
@@ -1786,15 +1827,11 @@ void WHWorld::initializeDamage() {
 	printf("Wound Spec in cubes:\n\trx: %f\try:%f\trz:%f\tarea:%d\n"
 			,woundDepth, woundRadiusY, woundRadiusZ, damzonepatches.size());
 
-//	if (woundSeverity == 100) {
-//		cout << "Finished building wound" << endl;
-//    return;
-//	} else {
+
 		for (int i = 0; i < initialDamage; i++) {
 			int randompatch = rand()%damzonepatches.size();
 			reservoir[i] = damzonepatches[randompatch];
 		}
-//	}
 
 	cout << "Finished building wound" << endl;
 	/*************************************
@@ -2146,6 +2183,14 @@ int WHWorld::go() {
 
 	this->updateCellStats();
 
+	// Update clock for visualization
+//	visualization::updateClock(this->clock);
+#ifdef AVEP
+#ifdef AVEP_INC
+	this->resetIncRound();
+#endif
+	this->updateMapIndexAVEP();
+#endif
 
 	return 0;
 }
@@ -2905,6 +2950,91 @@ void WHWorld::updateCells() {
 
 //#ifdef VISUALIZATION
 
+#ifdef AVEP
+
+void WHWorld::updateMapIndexAVEP()
+{
+  this->_mread  = this->_mwrite;
+  this->_mwrite = this->_mwrite == 0? 1 : 0;
+}
+
+#ifdef AVEP_INC
+void WHWorld::resetIncRound()
+{
+  this->_iround = 0;
+}
+#endif
+
+void WHWorld::printMapAVEP(ecm_i ecmType)
+{
+	int mapW = this->mapW_AVEP;
+	int mapH = this->mapH_AVEP;
+	int mapD = this->mapD_AVEP;
+
+	printf("\t");
+	for (int x = 0; x < mapW; x++) {
+		printf("%d\t", x);
+	}
+	printf("\n");
+	for (int z = 0; z < mapD; z++) {
+		printf("[%d]----------------------------------\n", z);
+		for (int y = 0; y < mapH; y++) {
+			printf("%d |", y);
+			for (int x = 0; x < mapW; x++) {
+				printf("\t%d", this->ecmMapAVEP[_mread][ecmType][z*mapW*mapH + y*mapW + x]);
+			}
+			printf("\n");
+		}
+		printf("-----------------------------------\n");
+	}
+}
+
+int WHWorld::getMapIndexAVEP(int x, int y, int z)
+{
+	int mapW = this->mapW_AVEP;
+	int mapH = this->mapH_AVEP;
+
+	int svX = x/SV_W;
+	int svY = y/SV_H;
+	int svZ = z/SV_D;
+	return svZ*mapW*mapH + svY*mapW + svX;
+}
+
+bool WHWorld::isDirtyAVEP(int mapx, int mapy, int mapz, ecm_i ecmType)
+{
+	int mapW = this->mapW_AVEP;
+	int mapH = this->mapH_AVEP;
+
+	return this->ecmMapAVEP[_mread][ecmType][mapz*mapW*mapH + mapy*mapW + mapx];
+}
+
+void WHWorld::setDirtyAVEP(int x, int y, int z, ecm_i ecmType)
+{
+	this->ecmMapAVEP[_mwrite][ecmType][this->getMapIndexAVEP(x, y, z)] = true;
+}
+
+void WHWorld::resetDirtyAVEP(int mapx, int mapy, int mapz, ecm_i ecmType)
+{
+	int mapW = this->mapW_AVEP;
+	int mapH = this->mapH_AVEP;
+
+	this->ecmMapAVEP[_mread][ecmType][mapz*mapW*mapH + mapy*mapW + mapx] = false;
+}
+
+void WHWorld::resetMapAVEP()
+{
+	int mapW = this->mapW_AVEP;
+	int mapH = this->mapH_AVEP;
+	int mapD = this->mapD_AVEP;
+
+	for (int i = 0; i < m_ecmtotal; i++) {
+		ecm_i ei = static_cast<ecm_i>(i);
+		std::memset(this->ecmMapAVEP[ei], 0, mapW*mapH*mapD * sizeof(bool));
+	}
+}
+
+#endif
+
 float WHWorld::getECM(int index, ecm_i ecmType)
 {
 	return (this->ecmPreProcMap[ecmType][index]);
@@ -2912,7 +3042,6 @@ float WHWorld::getECM(int index, ecm_i ecmType)
 
 void WHWorld::incECM(int index, ecm_i ecmType, float count)
 {
-	int iz = worldECM[index].indice[2];
 //	float factor;
 
 //	if(iz > (nz/2)+1 || iz < (nz/2)) factor = 0.2;
@@ -2921,6 +3050,9 @@ void WHWorld::incECM(int index, ecm_i ecmType, float count)
 
 	float factor2 = 1.5;
 	if (ecmType == m_col) factor2 = 0.9;
+#ifdef HUMAN_VF
+	else if (ecmType == m_hya) factor2 = 0.9;
+#endif
 	// if production rate = 2000, change to 1.5
 	// if production rate =  500, change to 6.0
 	// if production rate = 34.5, change to TBD (actual rate)
@@ -2932,6 +3064,14 @@ void WHWorld::incECM(int index, ecm_i ecmType, float count)
 //	(this->ecmPreProcMap[ecmType][index])    = factor2*ecmGradMap[ecmType][index];
 //	(this->ecmPreProcMap[ecmType][index])    = RAW_ECM_FACTOR*ecmMap[ecmType][index] + RAW_dECM_FACTOR*ecmGradMap[ecmType][index];
 	(this->ecmPreProcMap[ecmType][index]) += factor2*(count/((float) (this->maxFCol)));
+#ifdef AVEP
+	int x = worldECM[index].indice[0];
+	int y = worldECM[index].indice[1];
+	int z = worldECM[index].indice[2];
+
+	this->setDirtyAVEP(x, y, z, ecmType);
+#endif
+
 }
 
 void WHWorld::decECM(int index, ecm_i ecmType, float count)
@@ -2940,6 +3080,14 @@ void WHWorld::decECM(int index, ecm_i ecmType, float count)
 	(this->ecmGradMap[ecmType][index])    -= count/((float) (this->maxChangeFCol));
 	//	(this->ecmPreProcMap[ecmType][index])  = RAW_ECM_FACTOR*ecmMap[ecmType][index] + RAW_dECM_FACTOR*ecmGradMap[ecmType][index];
 	(this->ecmPreProcMap[ecmType][index]) -= count/((float) (this->maxFCol));
+
+#ifdef AVEP
+	int x = worldECM[index].indice[0];
+	int y = worldECM[index].indice[1];
+	int z = worldECM[index].indice[2];
+
+	this->setDirtyAVEP(x, y, z, ecmType);
+#endif
 }
 
 void WHWorld::setECM(int index, ecm_i ecmType, float count)
@@ -2954,13 +3102,24 @@ void WHWorld::resetECM(int index, ecm_i ecmType)
 	(this->ecmMap[ecmType][index])         = 0.0f;
 	(this->ecmGradMap[ecmType][index])     = 0.0f;
 	(this->ecmPreProcMap[ecmType][index])  = 0.0f;
+
+#ifdef AVEP
+	int x = worldECM[index].indice[0];
+	int y = worldECM[index].indice[1];
+	int z = worldECM[index].indice[2];
+
+	this->setDirtyAVEP(x, y, z, ecmType);
+#endif
 }
 
 void WHWorld::resetECMmap()
 {
-	std::memset(this->ecmMap[m_col],        0, np * sizeof(float));
-	std::memset(this->ecmGradMap[m_col],    0, np * sizeof(float));
-	std::memset(this->ecmPreProcMap[m_col], 0, np * sizeof(float));
+	for (int i = 0; i < m_ecmtotal; i++) {
+		ecm_i ei = static_cast<ecm_i>(i);
+		std::memset(this->ecmMap[ei],        0, np * sizeof(float));
+		std::memset(this->ecmGradMap[ei],    0, np * sizeof(float));
+		std::memset(this->ecmPreProcMap[ei], 0, np * sizeof(float));
+	}
 }
 
 //#endif		// VISUALIZATION

@@ -20,6 +20,8 @@ char** visualization::argv        = NULL;
 bool visualization::visDone = false;
 #endif
 
+bool visualization::simulationDone = false;
+
 #ifdef TIME_GL
 #define TIME_BUFFER_SIZE    24
 long gl_time[TIME_BUFFER_SIZE];
@@ -32,6 +34,7 @@ float visualization::totalCell[MAX_PLOTS] = {0.0};
 float visualization::xcam      = 0;
 float visualization::ycam      = 0;
 float visualization::zcam      = 0;
+
 
 WorldVisualizer    *visualization::EnvVisualizer_ptr    = NULL;
 //Terrain             *visualization::ScarTerrain_ptr      = NULL;
@@ -166,6 +169,16 @@ void visualization::initWndGrid(){
   WG_numvert = gw * gh * gd;
 }
 
+bool visualization::isFinished()
+{
+	return visualization::simulationDone;
+}
+
+bool visualization::isPaused()
+{
+	return paused;
+}
+
 #ifdef OVERLAP_VIS
 void visualization::notifyVisDone()
 {
@@ -203,9 +216,11 @@ bool visualization::waitForCompute()
 
 
 const char *volumeFilename = "/fs/HPC_ABMs/GitProjects/vocalcord-cpuabm-v6/src/Visualization/3D/data/Bucky.raw";
-cudaExtent volumeSize = make_cudaExtent(32, 32, 32);
+cudaExtent volumeSize = make_cudaExtent(32, 32, 32);	// gets re-initialized in visualization::start
+cudaExtent svGridSize = make_cudaExtent(0, 0, 0);
 
 cudaMemcpy3DParms copyParams[m_ecmtotal];
+cudaMemcpy3DParms svCopyParams[m_ecmtotal];
 
 // Define the files that are to be save and the reference images for validation
 const char *sOriginal[] =
@@ -240,9 +255,27 @@ float transferOffset = 0.0f;
 float transferScale = 1.0f;
 bool linearFiltering = true;
 
+#ifdef AVEP_INC
+
+int incRound = 0;
+
+#ifdef RAT_VF
+float incFactor = 0.333f;
+#else
+float incFactor = 0.006f;
+#endif
+
+float maxRoundf = 1.0f/incFactor;
+int maxRounds = static_cast<int>(maxRoundf);
+
+#endif	// AVEP_INC
+
 GLuint ecm_pbo[m_ecmtotal] = {0, 0, 0};     // OpenGL pixel buffer object
 GLuint ecm_tex[m_ecmtotal] = {0, 0, 0};     // OpenGL texture object
+
 struct cudaGraphicsResource *cuda_pbo_resource[m_ecmtotal]; // CUDA Graphics Resource (to transfer PBO)
+
+
 
 StopWatchInterface *timer = 0;
 
@@ -252,6 +285,8 @@ int fpsCount = 0;        // FPS count for averaging
 int fpsLimit = 1;        // FPS limit for sampling
 int g_Index = 0;
 unsigned int frameCount = 0;
+unsigned int frameIter = 0;
+float fpsSum = 0.0f;
 
 int *pArgc;
 char **pArgv;
@@ -269,14 +304,22 @@ void computeFPS()
         char fps[256];
         float ifps = 1.f / (sdkGetAverageTimerValue(&timer) / 1000.f);
 //        sprintf(fps, "Volume Render: %3.1f fps", ifps);
-
-        glutSetWindowTitle(fps);
+//
+//        glutSetWindowTitle(fps);
+        printf("Volume Render: %3.1f fps\n", ifps);
         fpsCount = 0;
 
         fpsLimit = (int)MAX(1.f, ifps);
         sdkResetTimer(&timer);
+
+        frameIter++;
+        fpsSum += ifps;
+
+        printf("Average: %3.1f fps\n", fpsSum/frameIter);
+
     }
 }
+
 
 // render image using CUDA
 void render(ecm_i ecm_index)
@@ -316,14 +359,57 @@ void render(ecm_i ecm_index)
     checkCudaErrors(cudaGraphicsUnmapResources(1, &cuda_pbo_resource[ecm_index], 0));
 }
 
+
+#ifdef AVEP
+// update sub-volume copy params with host volume offset
+void update_SubVolumeCopyParams(cudaMemcpy3DParms &svCopyParams, int i, int j, int k)
+{
+	// i, j, k is block coordinations
+	cudaPos offset = make_cudaPos(i*SV_W*sizeof(VolumeType), j*SV_H, k*SV_D);
+	svCopyParams.srcPos = offset;
+#ifdef AVEP_INC
+	svCopyParams.dstPos = offset;
+#endif
+
+	// if last block in x-, y-, or z-dimension then update extent
+	svCopyParams.extent.width  = SV_W*sizeof(VolumeType);
+	svCopyParams.extent.height = SV_H;
+	svCopyParams.extent.depth  = SV_D;
+
+	size_t leftOverX = volumeSize.width%SV_W;
+	size_t leftOverY = volumeSize.height%SV_H;
+	size_t leftOverZ = volumeSize.depth%SV_D;
+	if (i == svGridSize.width - 1 && leftOverX > 0)
+	{
+		svCopyParams.extent.width = (volumeSize.width%SV_W)*sizeof(VolumeType);
+	}
+
+	if (j == svGridSize.height - 1 && leftOverY > 0)
+	{
+		svCopyParams.extent.height = volumeSize.height%SV_H;
+	}
+
+	if (k == svGridSize.depth - 1 && leftOverZ > 0)
+	{
+		svCopyParams.extent.depth = volumeSize.depth%SV_D;
+	}
+}
+#endif	// AVEP
+
+
 // display results using OpenGL (called by GLUT)
 void display()
 {
+
+#ifdef AVEP_INC
+	incRound = world_ptr->_iround;
+#endif
 
 #ifdef TIME_GL
   struct timeval start, end, go_start, go_end;
   gettimeofday(&start, NULL);
 #endif
+    sdkStartTimer(&timer);
 
     // use OpenGL to build view matrix
     GLfloat modelView[16];
@@ -335,11 +421,6 @@ void display()
     glTranslatef(-viewTranslation.x, -viewTranslation.y, -viewTranslation.z);
     glGetFloatv(GL_MODELVIEW_MATRIX, modelView);
     glPopMatrix();
-
-//  	glColor3f(1,1,1);
-  //    drawTransparentBox(GL_X(nx/2) +  fibOffset, GL_Y(ny/2) +  fibOffsetY, PLANE_DEPTH + nz/2, nx, ny, nz);
-//    drawTransparentBox(GL_X(142/2), GL_Y(142/2), -2 + 28/2, 142, 142, 28);
-
 
     invViewMatrix[0] = modelView[0];
     invViewMatrix[1] = modelView[4];
@@ -354,9 +435,10 @@ void display()
     invViewMatrix[10] = modelView[10];
     invViewMatrix[11] = modelView[14];
 
-    render(m_col);
-    render(m_ela);
-    render(m_hya);
+    for (int i = 0; i < m_ecmtotal; i++) {
+    	ecm_i ei = static_cast<ecm_i>(i);
+    	render(ei);
+    }
 
     // for white bg
 //    glClearColor(1.0f, 1.0f, 1.0f, 1.0f);           // This Will Clear The Background Color To White
@@ -381,11 +463,7 @@ void display()
     glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
 #else
     // draw using texture
-
-//    const float partOf1 = 0.4f;
-
     for (int i = 0; i < m_ecmtotal; i++) {
-//    	if (i == m_ela) continue;
     	ecm_i ei = static_cast<ecm_i>(i);
     	// copy from pbo to texture
     	glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, ecm_pbo[ei]);
@@ -413,11 +491,9 @@ void display()
     glutSwapBuffers();
     glutReportErrors();
 
-    sdkStopTimer(&timer);
-
-    computeFPS();
-
     char winTitle[256];
+
+    visualization::iter = world_ptr->clock;
     sprintf(winTitle, "ECM Proteins: Day %d (Iteration %d)", (visualization::iter/48) + 1, visualization::iter);
 
     glutSetWindowTitle(winTitle);
@@ -426,8 +502,9 @@ void display()
 #ifdef TIME_GL
   gettimeofday(&go_start, NULL);
 #endif
-    if (!paused)
-    {
+//    if (!paused)
+//    {
+
     	/*****************************************/
 #ifdef OVERLAP_VIS
     	visualization::notifyVisDone();
@@ -435,19 +512,66 @@ void display()
     	visualization::waitForCompute();
     	cout << "visualization::start() done waiting for compute" << endl;
 #else	// OVERLAP_VIS
-    	// Update new locations
+#ifndef INTERACTIVE_VIS
+    	// Update model
     	visualization::world_ptr->go();
+#endif	// !INTERACTIVE_VIS
 #endif	// OVERLAP_VIS
     	/*****************************************/
-
-    	bufferECMmap(copyParams[m_col]);
-    	bufferECMmap(copyParams[m_ela]);
-    	bufferECMmap(copyParams[m_hya]);
-    	visualization::iter++;
-    }
 #ifdef TIME_GL
   gettimeofday(&go_end, NULL);
 #endif
+//    }
+
+
+
+  for (int ein = 0; ein < m_ecmtotal; ein++)
+  {
+      	ecm_i ei = static_cast<ecm_i>(ein);
+
+#ifdef AVEP
+//      	printf("ECM %d:\n", ein);
+//      	world_ptr->printMapAVEP(ei);
+//      	printf("before update params ---------Grid: [%d, %d, %d]\n", svGridSize.width, svGridSize.height, svGridSize.depth);
+      	for (int k = 0; k < svGridSize.depth; k++)
+      	{
+      		for (int j = 0; j < svGridSize.height; j++)
+      		{
+      			for (int i = 0; i < svGridSize.width; i++)
+      			{
+
+      				if (!world_ptr->isDirtyAVEP(i, j, k, ei)) continue;
+
+      				update_SubVolumeCopyParams(svCopyParams[ei], i, j, k);
+
+#ifdef AVEP_INC
+      				printf("++++++++Round %d/%d\n", incRound, maxRounds);
+      				if (incRound > maxRounds)
+      			  {
+      					printf("+++++++++++++++++%d, %d, %d, maxround\n", i, j, k);
+      					world_ptr->resetDirtyAVEP(i, j, k, ei);
+      					continue;
+      				}
+      				printf("buffering sub-volume ----- [%d, %d, %d]\n", i, j, k);
+      				printCpyParams(copyParams[ei]);
+      				printf("SV -----------------------\n");
+      				printCpyParams(svCopyParams[ei]);
+      				bufferECMmapAVEP(copyParams[ei], svCopyParams[ei], ei, incRound, incFactor);
+#else
+      				printf("buffering sub-volume -- [%d, %d, %d]\n", i, j, k);
+      				bufferECMmapAVEP(copyParams[ei], svCopyParams[ei], ei);
+      				world_ptr->resetDirtyAVEP(i, j, k, ei);
+#endif
+      			}
+      		}
+      	}
+#ifdef AVEP_INC
+      	incRound++;
+#endif	// AVEP_INC
+#else
+      	bufferECMmap(copyParams[ei]);
+#endif
+  }
 
 
 
@@ -474,6 +598,10 @@ void display()
   printf("\trender time:  %ld\taverage: %ld\n", gl_time[ind], sum_gl/TIME_BUFFER_SIZE);
   printf("\tTOTAL time:   %ld\taverage: %ld\n", total_time[ind], sum_total/TIME_BUFFER_SIZE);
 #endif
+
+  sdkStopTimer(&timer);
+
+  computeFPS();
 }
 
 void idle()
@@ -486,6 +614,8 @@ void keyboard(unsigned char key, int x, int y)
     switch (key)
     {
         case 27:
+        	  simulationDone = true;
+
             #if defined (__APPLE__) || defined(MACOSX)
                 exit(EXIT_SUCCESS);
             #else
@@ -655,6 +785,7 @@ void initGL(int *argc, char **argv)
     }
 }
 
+
 void initPixelBuffer()
 {
 	for (int ei = 0; ei < m_ecmtotal; ei++)
@@ -731,6 +862,7 @@ int chooseCudaDevice(int argc, const char **argv, bool bUseOpenGL)
 
 #define RUN_ECM_VIS
 
+
 void visualization::start()
 {
 
@@ -744,7 +876,11 @@ void visualization::start()
   volumeSize.width  = world_ptr->nx;
   volumeSize.height = world_ptr->ny;
   volumeSize.depth  = world_ptr->nz;
-
+#ifdef AVEP
+  svGridSize.width  = volumeSize.width% SV_W == 0? volumeSize.width/SV_W  : volumeSize.width/SV_W  + 1;
+  svGridSize.height = volumeSize.height%SV_H == 0? volumeSize.height/SV_H : volumeSize.height/SV_H + 1;
+  svGridSize.depth  = volumeSize.depth% SV_D == 0? volumeSize.depth/SV_D  : volumeSize.depth/SV_D  + 1;
+#endif	// AVEP
   // First initialize OpenGL context, so we can properly set the GL for CUDA.
   // This is necessary in order to achieve optimal performance with OpenGL/CUDA interop.
   printf("Vis: Initializing OpenGL\n");
@@ -765,10 +901,15 @@ void visualization::start()
 
   printf("Vis: Initializing CUDA\n");
   for (int i = 0; i < m_ecmtotal; i++) {
+
   	ecm_i ei = static_cast<ecm_i>(i);
   	copyParams[ei] = {0};
   	h_volume[ei] = world_ptr->ecmPreProcMap[ei];
+#ifdef AVEP
+  	initCudaAVEP(h_volume[ei], volumeSize, copyParams[ei], svCopyParams[ei], ei);
+#else
   	initCuda(h_volume[ei], volumeSize, copyParams[ei], ei);
+#endif
   }
   //free(h_volume);
 

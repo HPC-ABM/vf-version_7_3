@@ -72,6 +72,50 @@ void Driver::run(int numTicks)
   }
 
 }
+#elif defined(INTERACTIVE_VIS)
+#pragma omp parallel num_threads(2)
+{
+  int tid = omp_get_thread_num();
+  if (tid == 0) {
+    // Render
+    cout << "Driver(): start vis" << endl;
+    visualization::start();
+  } else {
+    // Compute
+    cout << "Driver(): start go()" << endl;
+    int tick = 0;
+    while (!visualization::isFinished()) {
+    	if (visualization::isPaused()) continue;
+
+     /**********************
+      * TIMING INFORMATION *
+      **********************/
+      gettimeofday(&start, NULL);
+      worldPtr->go();
+      gettimeofday(&end, NULL);
+
+      // Store execution time for this tick
+      elapsed_times[tick%numTicks] = (end.tv_sec*1000 + end.tv_usec/1000) -
+                              (start.tv_sec*1000 + start.tv_usec/1000);
+      cout << "       this go() execution took " << elapsed_times[tick%numTicks] << " ms" << endl;
+      tick++;
+    }
+
+   /**********************
+    * TIMING INFORMATION *
+    **********************/
+    int acc = 0;
+    for (int i = 0; i < numTicks; i++) {
+            cout << "Tick " << i << " took " << elapsed_times[i] << " ms" << endl;
+            acc += elapsed_times[i];
+    }
+    cout << "Average time (excluding iter 0):  "
+         << (acc - elapsed_times[0])/(numTicks - 1)
+         << " ms" << endl;
+    exit(-1);
+  }
+
+}
 #else 	// OVERLAP_VIS
   cout << "+++++++VIS+++++++" << endl;
   visualization::start();

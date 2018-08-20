@@ -131,6 +131,7 @@ enum chemical_t {
   IL6 = 5,
   IL8 = 6,
   IL10 = 7,
+  TOTAL_CHEM = 8,
   NEUgrad = 0,
   MACgrad = 1,
   FIBgrad = 2

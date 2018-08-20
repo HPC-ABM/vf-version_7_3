@@ -648,7 +648,7 @@ class WHWorld: public World {
 
 
     /****************************************************************
-     * MAPS                                         				*
+     * MAPS                                                 				*
      ****************************************************************/
     // TODO: Consolidate the maps
     // Map of matured ECM (collagen, elastin, HA)
@@ -657,6 +657,40 @@ class WHWorld: public World {
     float *ecmGradMap[m_ecmtotal];
     // Map of amplified changes and scaled down initial values in matured ECM (collagen, elastin, HA)
     float *ecmPreProcMap[m_ecmtotal];
+
+#ifdef AVEP
+    /****************************************************************
+     * AVEP DIRTY MAPS                                         		  *
+     ****************************************************************/
+#ifdef AVEP_INC
+    int _iround;
+
+    void resetIncRound();
+#endif
+    int mapW_AVEP;
+    int mapH_AVEP;
+    int mapD_AVEP;
+    int _mread;
+    int _mwrite;
+
+    bool *ecmMapAVEP[2][m_ecmtotal];	// read and write map buffers
+
+    int getMapIndexAVEP(int x, int y, int z);
+
+    bool isDirtyAVEP(int mapx, int mapy, int mapz, ecm_i ecmType);
+
+    void setDirtyAVEP(int x, int y, int z, ecm_i ecmType);
+
+    void resetDirtyAVEP(int mapx, int mapy, int mapz, ecm_i ecmType);
+
+    void resetMapAVEP();
+
+    void printMapAVEP(ecm_i ecmType);
+
+    void updateMapIndexAVEP();
+
+#endif
+
 //#endif
 
     /****************************************************************
