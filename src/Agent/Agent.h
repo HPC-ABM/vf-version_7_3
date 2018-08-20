@@ -132,6 +132,29 @@ class Agent {
     static bool rollDice(int percent);
 //    static bool rollDice(float percent);
 
+
+    float calc_chem(REGULATORS_T uregs, REGULATORS_T dregs, REGULATORS_T coefs, float offset);
+    float calc_chem(REGULATORS_T uregs, REGULATORS_T dregs, REGULATORS_T ucoefs, REGULATORS_T dcoefs, float offset);
+
+    float produce_tnf( REGULATORS_T uregs, REGULATORS_T dregs, REGULATORS_T coefs, float offset);
+    float produce_tgf( REGULATORS_T uregs, REGULATORS_T dregs, REGULATORS_T coefs, float offset);
+    float produce_fgf( REGULATORS_T uregs, REGULATORS_T dregs, REGULATORS_T coefs, float offset);
+    float produce_mmp8(REGULATORS_T uregs, REGULATORS_T dregs, REGULATORS_T coefs, float offset);
+    float produce_il1( REGULATORS_T uregs, REGULATORS_T dregs, REGULATORS_T coefs, float offset);
+    float produce_il6( REGULATORS_T uregs, REGULATORS_T dregs, REGULATORS_T coefs, float offset);
+    float produce_il8( REGULATORS_T uregs, REGULATORS_T dregs, REGULATORS_T coefs, float offset);
+    float produce_il10(REGULATORS_T uregs, REGULATORS_T dregs, REGULATORS_T coefs, float offset);
+
+    float produce_tnf( REGULATORS_T uregs, REGULATORS_T dregs, REGULATORS_T ucoefs, REGULATORS_T dcoefs, float offset);
+    float produce_tgf( REGULATORS_T uregs, REGULATORS_T dregs, REGULATORS_T ucoefs, REGULATORS_T dcoefs, float offset);
+    float produce_fgf( REGULATORS_T uregs, REGULATORS_T dregs, REGULATORS_T ucoefs, REGULATORS_T dcoefs, float offset);
+    float produce_mmp8(REGULATORS_T uregs, REGULATORS_T dregs, REGULATORS_T ucoefs, REGULATORS_T dcoefs, float offset);
+    float produce_il1( REGULATORS_T uregs, REGULATORS_T dregs, REGULATORS_T ucoefs, REGULATORS_T dcoefs, float offset);
+    float produce_il6( REGULATORS_T uregs, REGULATORS_T dregs, REGULATORS_T ucoefs, REGULATORS_T dcoefs, float offset);
+    float produce_il8( REGULATORS_T uregs, REGULATORS_T dregs, REGULATORS_T ucoefs, REGULATORS_T dcoefs, float offset);
+    float produce_il10(REGULATORS_T uregs, REGULATORS_T dregs, REGULATORS_T ucoefs, REGULATORS_T dcoefs, float offset);
+
+
     /*
      * Description:	Moves the cell to the target patch if it is valid and 
      *              available. Updates cell location and patch availability.
@@ -299,6 +322,8 @@ class Agent {
     static Patch* agentPatchPtr;
     // Pointer from an agent to an ECM
     static ECM* agentECMPtr;
+    // Baseline cytokine in pg/cell/tick
+    static float baseline[TOTAL_CHEM];
     // Number of patches in x,y,z dimensions of the world
     static int nx, ny, nz;
     // Difference in x-,y-,z-coordinates to neighboring patches

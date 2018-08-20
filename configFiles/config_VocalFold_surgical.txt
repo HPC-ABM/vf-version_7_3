@@ -8,8 +8,8 @@ Baseline_IL6: 0.172
 Baseline_IL8: 1.171
 Baseline_IL10: 0.058
 Wound_Depth: 1.0
-Wound_RadiusY: 14.0
-Wound_RadiusZ: 8.0
+Wound_RadiusY: 10.0
+Wound_RadiusZ: 5.0
 Wound_Severity: 100
 Number_of_cell_to_be_inputed: 4
 Fibroblast: 12200000

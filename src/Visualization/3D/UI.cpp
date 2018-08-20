@@ -17,7 +17,7 @@ float pcamX=0.0f, pcamY=0.0f, pcamZ=0.0f;
 GLfloat cellSize = 0.001f;//0.25f;//2.0f;
 GLfloat pcellSize = 0.001f;//0.25f;//2.0f;       // previous cell size
 
-bool paused = true;//false;
+bool paused = false;// true
 
 // Chem global variables
 bool showChem_HM[8]   = {true, false, false, false, false, false, false, false};

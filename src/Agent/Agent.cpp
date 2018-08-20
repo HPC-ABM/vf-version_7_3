@@ -27,7 +27,8 @@
 
 WHWorld* Agent::agentWorldPtr = NULL;
 Patch* Agent::agentPatchPtr = NULL;
-ECM* Agent::agentECMPtr = NULL; 
+ECM* Agent::agentECMPtr = NULL;
+float Agent::baseline[TOTAL_CHEM] = {0.0f};
 int Agent::nx = 0;
 int Agent::ny = 0;
 int Agent::nz = 0;
@@ -114,6 +115,285 @@ bool Agent::rollDice(int percent) {
 		return 0;
 	}
 }
+
+float Agent::calc_chem(
+    REGULATORS_T  uregs,
+    REGULATORS_T  dregs,
+    REGULATORS_T ucoefs,
+    REGULATORS_T dcoefs,
+    float offset) {
+  assert(uregs.size() == ucoefs.size());
+  assert(dregs.size() == dcoefs.size());
+
+  float inc_num = 0; // numerator
+  float inc_den = 0; // denominator
+  int   uci = 0;
+  int   dci = 0;
+
+  for (REGULATORS_T::iterator it = uregs.begin(); it != uregs.end(); it++) {
+      // numerator = numerator + coeff[i]*uregs[i]
+      inc_num += ucoefs[uci++]*(*it);
+  }
+
+  for (REGULATORS_T::iterator it = dregs.begin(); it != dregs.end(); it++) {
+      // denominator = denominator + coeff[i]*dregs[i]
+      inc_den += dcoefs[dci++]*(*it);
+  }
+
+  // Check for zero denom
+  if (inc_den == 0.0f) return 0.0f;
+
+  return (inc_num/inc_den) + offset;
+}
+
+float Agent::calc_chem(
+    REGULATORS_T uregs,
+    REGULATORS_T dregs,
+    REGULATORS_T coefs,
+    float offset) {
+  assert(uregs.size() + dregs.size() == coefs.size());
+
+  float inc_num = 0; // numerator
+  float inc_den = 0; // denominator
+  int   ci = 0;
+
+  for (REGULATORS_T::iterator it = uregs.begin(); it != uregs.end(); it++) {
+      // numerator = numerator + coeff[i]*uregs[i]
+      inc_num += coefs[ci++]*(*it);
+  }
+
+  for (REGULATORS_T::iterator it = dregs.begin(); it != dregs.end(); it++) {
+      // denominator = denominator + coeff[i]*dregs[i]
+      inc_den += coefs[ci++]*(*it);
+  }
+
+  // Check for zero denom
+  if (inc_den == 0.0f) return 0.0f;
+
+  return (inc_num/inc_den) + offset;
+}
+
+float Agent::produce_tnf(
+		REGULATORS_T uregs,
+		REGULATORS_T dregs,
+		REGULATORS_T coefs,
+		float offset){
+
+	int in = this->getIndex();
+	float TNFinc = this->calc_chem(uregs, dregs, coefs, offset);
+	// Update chem change
+	(this->agentWorldPtr->WHWorldChem->dTNF[in]) += TNFinc;
+	return TNFinc;
+}
+
+float Agent::produce_tnf(
+		REGULATORS_T uregs,
+		REGULATORS_T dregs,
+		REGULATORS_T ucoefs,
+		REGULATORS_T dcoefs,
+		float offset){
+
+	int in = this->getIndex();
+	float TNFinc = this->calc_chem(uregs, dregs, ucoefs, dcoefs, offset);
+	// Update chem change
+	(this->agentWorldPtr->WHWorldChem->dTNF[in]) += TNFinc;
+	return TNFinc;
+}
+
+float Agent::produce_tgf(
+    REGULATORS_T uregs,
+    REGULATORS_T dregs,
+    REGULATORS_T coefs,
+    float offset){
+
+  int in = this->getIndex();
+  float TGFinc = this->calc_chem(uregs, dregs, coefs, offset);
+  // Update chem change
+  (this->agentWorldPtr->WHWorldChem->dTGF[in]) += TGFinc;
+  return TGFinc;
+}
+
+float Agent::produce_tgf(
+		REGULATORS_T uregs,
+		REGULATORS_T dregs,
+		REGULATORS_T ucoefs,
+		REGULATORS_T dcoefs,
+		float offset){
+
+	int in = this->getIndex();
+	float TGFinc = this->calc_chem(uregs, dregs, ucoefs, dcoefs, offset);
+	// Update chem change
+	(this->agentWorldPtr->WHWorldChem->dTGF[in]) += TGFinc;
+	return TGFinc;
+}
+
+
+float Agent::produce_fgf(
+    REGULATORS_T uregs,
+    REGULATORS_T dregs,
+    REGULATORS_T coefs,
+    float offset){
+
+  int in = this->getIndex();
+  float FGFinc = this->calc_chem(uregs, dregs, coefs, offset);
+  // Update chem change
+  (this->agentWorldPtr->WHWorldChem->dFGF[in]) += FGFinc;
+  return FGFinc;
+}
+
+float Agent::produce_fgf(
+		REGULATORS_T uregs,
+		REGULATORS_T dregs,
+		REGULATORS_T ucoefs,
+		REGULATORS_T dcoefs,
+		float offset){
+
+	int in = this->getIndex();
+	float FGFinc = this->calc_chem(uregs, dregs, ucoefs, dcoefs, offset);
+	// Update chem change
+	(this->agentWorldPtr->WHWorldChem->dFGF[in]) += FGFinc;
+	return FGFinc;
+}
+
+
+float Agent::produce_mmp8(
+		REGULATORS_T uregs,
+		REGULATORS_T dregs,
+		REGULATORS_T coefs,
+		float offset){
+
+	int in = this->getIndex();
+	float MMP8inc = this->calc_chem(uregs, dregs, coefs, offset);
+	// Update chem change
+	(this->agentWorldPtr->WHWorldChem->dMMP8[in]) += MMP8inc;
+	return MMP8inc;
+}
+
+float Agent::produce_mmp8(
+		REGULATORS_T uregs,
+		REGULATORS_T dregs,
+		REGULATORS_T ucoefs,
+		REGULATORS_T dcoefs,
+		float offset){
+
+	int in = this->getIndex();
+	float MMP8inc = this->calc_chem(uregs, dregs, ucoefs, dcoefs, offset);
+	// Update chem change
+	(this->agentWorldPtr->WHWorldChem->dMMP8[in]) += MMP8inc;
+	return MMP8inc;
+}
+
+
+float Agent::produce_il1(
+    REGULATORS_T uregs,
+    REGULATORS_T dregs,
+    REGULATORS_T coefs,
+    float offset){
+
+  int in = this->getIndex();
+  float IL1inc = this->calc_chem(uregs, dregs, coefs, offset);
+  // Update chem change
+  (this->agentWorldPtr->WHWorldChem->dIL1beta[in]) += IL1inc;
+  return IL1inc;
+}
+
+float Agent::produce_il1(
+		REGULATORS_T uregs,
+		REGULATORS_T dregs,
+		REGULATORS_T ucoefs,
+		REGULATORS_T dcoefs,
+		float offset){
+
+	int in = this->getIndex();
+	float IL1inc = this->calc_chem(uregs, dregs, ucoefs, dcoefs, offset);
+	// Update chem change
+	(this->agentWorldPtr->WHWorldChem->dIL1beta[in]) += IL1inc;
+	return IL1inc;
+}
+
+float Agent::produce_il6(
+    REGULATORS_T uregs,
+    REGULATORS_T dregs,
+    REGULATORS_T coefs,
+    float offset){
+
+  int in = this->getIndex();
+  float IL6inc = this->calc_chem(uregs, dregs, coefs, offset);
+  // Update chem change
+  (this->agentWorldPtr->WHWorldChem->dIL6[in]) += IL6inc;
+  return IL6inc;
+}
+
+float Agent::produce_il6(
+		REGULATORS_T uregs,
+		REGULATORS_T dregs,
+		REGULATORS_T ucoefs,
+		REGULATORS_T dcoefs,
+		float offset){
+
+  int in = this->getIndex();
+  float IL6inc = this->calc_chem(uregs, dregs, ucoefs, dcoefs, offset);
+  // Update chem change
+  (this->agentWorldPtr->WHWorldChem->dIL6[in]) += IL6inc;
+  return IL6inc;
+}
+
+
+float Agent::produce_il8(
+    REGULATORS_T uregs,
+    REGULATORS_T dregs,
+    REGULATORS_T coefs,
+    float offset){
+
+  int in = this->getIndex();
+  float IL8inc = this->calc_chem(uregs, dregs, coefs, offset);
+  // Update chem change
+  (this->agentWorldPtr->WHWorldChem->dIL8[in]) += IL8inc;
+  return IL8inc;
+}
+
+float Agent::produce_il8(
+		REGULATORS_T uregs,
+		REGULATORS_T dregs,
+		REGULATORS_T ucoefs,
+		REGULATORS_T dcoefs,
+    float offset){
+
+  int in = this->getIndex();
+  float IL8inc = this->calc_chem(uregs, dregs, ucoefs, dcoefs, offset);
+  // Update chem change
+  (this->agentWorldPtr->WHWorldChem->dIL8[in]) += IL8inc;
+  return IL8inc;
+}
+
+
+float Agent::produce_il10(
+    REGULATORS_T uregs,
+    REGULATORS_T dregs,
+    REGULATORS_T coefs,
+    float offset){
+
+  int in = this->getIndex();
+  float IL10inc = this->calc_chem(uregs, dregs, coefs, offset);
+  // Update chem change
+  (this->agentWorldPtr->WHWorldChem->dIL10[in]) += IL10inc;
+  return IL10inc;
+}
+
+float Agent::produce_il10(
+		REGULATORS_T uregs,
+		REGULATORS_T dregs,
+		REGULATORS_T ucoefs,
+		REGULATORS_T dcoefs,
+    float offset){
+
+  int in = this->getIndex();
+  float IL10inc = this->calc_chem(uregs, dregs, ucoefs, dcoefs, offset);
+  // Update chem change
+  (this->agentWorldPtr->WHWorldChem->dIL10[in]) += IL10inc;
+  return IL10inc;
+}
+
 
 bool Agent::move(int dX, int dY, int dZ, int read_index) {
   // Location of agent in x,y,z dimensions of world.

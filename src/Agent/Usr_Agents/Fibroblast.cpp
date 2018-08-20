@@ -29,7 +29,7 @@ using namespace std;
 int Fibroblast::numOfFibroblasts = 0;
 
 
-float Fibroblast::cytokineSynthesis[32] = {10, 1, 2, 20, 1, 1, 1, 10, 0.5, 1, 5, 0.01, 1, 1, 1, 1, 10, 0.5, 1, 1, 1, 1, 10, 10, 1, 1, 1, 1, 0.05, 1, 5, 1};
+float Fibroblast::cytokineSynthesis[32] = {0.0f};
 float Fibroblast::activation[5] = {10.0, 50.0, 0, 25.0, 2.5};
 float Fibroblast::ECMsynthesis[19] = {1, 0, 0.01, 50, 25, 2, 10, 5, 1, 0, 25, 2, 1, 0, 50, 5, 10, 12, 1};
 float Fibroblast::proliferation[6] = {24, 10, 1, 0, 25, 3};
@@ -325,32 +325,6 @@ void Fibroblast::afib_proliferate(){
   }
 }
 
-float Fibroblast::calc_chem(
-    REGULATORS_T uregs,
-    REGULATORS_T dregs,
-    REGULATORS_T coefs,
-    float offset) {
-  assert(uregs.size() + dregs.size() == coefs.size());
-
-  float inc_num = 0; // numerator
-  float inc_den = 0; // denominator
-  int   ci = 0;
-
-  for (REGULATORS_T::iterator it = uregs.begin(); it != uregs.end(); it++) {
-      // numerator = numerator + coeff[i]*uregs[i]
-      inc_num += coefs[ci++]*(*it);
-  }
-
-  for (REGULATORS_T::iterator it = dregs.begin(); it != dregs.end(); it++) {
-      // denominator = denominator + coeff[i]*dregs[i]
-      inc_den += coefs[ci++]*(*it);
-  }
-
-  // Check for zero denom
-  if (inc_den == 0.0f) return 0.0f;
-
-  return (inc_num/inc_den) + offset;
-}
 
 float Fibroblast::calc_stim(
     REGULATORS_T uregs,
@@ -361,35 +335,11 @@ float Fibroblast::calc_stim(
 {
   float stim = this->calc_chem(uregs, dregs, coefs, offset);
 
-//  typedef std::numeric_limits< float > dbl;
-//  cout.precision(dbl::max_digits10);
-//
-//  float inc_num = 0.0;
-//  float inc_den = 0.0;
-//  if (Agent::agentWorldPtr->clock == 100) {
-//      for (REGULATORS_T::iterator it = uregs.begin(); it != uregs.end(); it++) {
-//          cout << "    up reg: " << *it << endl;
-//          inc_num += (*it);
-//      }
-//
-//      for (REGULATORS_T::iterator it = dregs.begin(); it != dregs.end(); it++) {
-//          cout << "    down reg: " << *it << endl;
-//          inc_den += (*it);
-//      }
-//      printf("num/den: %0.12f/%0.12f\t", inc_num, inc_den);
-//      cout << "    num/den: " << inc_num << "/" << inc_den << endl;
-//      printf("stim: %0.12f\n", stim);
-//  }
-
   if (stim <= 1.0f) return 0.0f;
   if (stim > max_stim) return 1.0f;	// clamp stim
 
   float min_stim = 1.0;
 
-  // DEBUG
-//  if (Agent::agentWorldPtr->clock == 100)
-//    printf("stim_norm: %0.12f\n", (stim - min_stim)/(max_stim - min_stim));
-  // normalize [min_stim, max_stim] to [0, 1]
   return (stim - min_stim)/(max_stim - min_stim);
 }
 
@@ -413,63 +363,6 @@ float Fibroblast::produce_tgf(
   return TGFinc;
 }
 
-
-float Fibroblast::produce_fgf(
-    REGULATORS_T uregs,
-    REGULATORS_T dregs,
-    REGULATORS_T coefs,
-    float offset){
-
-  int in = this->getIndex();
-  float FGFinc = this->calc_chem(uregs, dregs, coefs, offset);
-  // Update chem change
-  (this->agentWorldPtr->WHWorldChem->dFGF[in]) += FGFinc;
-  return FGFinc;
-}
-
-
-float Fibroblast::produce_tnf(
-    REGULATORS_T uregs,
-    REGULATORS_T dregs,
-    REGULATORS_T coefs,
-    float offset){
-
-  int in = this->getIndex();
-  float TNFinc = this->calc_chem(uregs, dregs, coefs, offset);
-  // Update chem change
-  (this->agentWorldPtr->WHWorldChem->dTNF[in]) += TNFinc;
-  return TNFinc;
-}
-
-
-float Fibroblast::produce_il6(
-    REGULATORS_T uregs,
-    REGULATORS_T dregs,
-    REGULATORS_T coefs,
-    float offset){
-
-  int in = this->getIndex();
-  float IL6inc = this->calc_chem(uregs, dregs, coefs, offset);
-  // Update chem change
-  (this->agentWorldPtr->WHWorldChem->dIL6[in]) += IL6inc;
-  return IL6inc;
-}
-
-
-float Fibroblast::produce_il8(
-    REGULATORS_T uregs,
-    REGULATORS_T dregs,
-    REGULATORS_T coefs,
-    float offset){
-
-  int in = this->getIndex();
-  float IL8inc = this->calc_chem(uregs, dregs, coefs, offset);
-  // Update chem change
-  (this->agentWorldPtr->WHWorldChem->dIL8[in]) += IL8inc;
-  return IL8inc;
-}
-
-
 void Fibroblast::afib_produce_cytokines(float neighborHAs) {
   // Calculates chemical gradients and patch chemical concentrations
   int in = this->index[read_t];
@@ -485,7 +378,7 @@ void Fibroblast::afib_produce_cytokines(float neighborHAs) {
 #ifndef CALIBRATION
   float tgf_cTNF  = 0.0000001f;//1.0f;
   float tgf_cIL10 = 100.0f;
-  float tgf_ofst  = 0.0f;
+  float tgf_ofst  = Agent::baseline[TGF];//0.0f;
 
   float fgf_cTGF = 5.2e-3;
   float fgf_ofst = util::randFloatRange(1.0f, 1.6f, seed_arr)*(1e-7);
@@ -493,7 +386,7 @@ void Fibroblast::afib_produce_cytokines(float neighborHAs) {
   float tnf_cTGF  = 0.00000005f;//0.00000002f;//0.00001f;
   float tnf_cIL10 = 10000000.0f;
   float tnf_cnHA  = 1000.0f;
-  float tnf_ofst  = 0.0f;
+  float tnf_ofst  = Agent::baseline[TNF];//0.0f;
 
   float il6_cIL6  = 0.0000001f;//1.0f;
   float il6_cTGF  = 0.00000001f;//1.0f;
@@ -501,39 +394,39 @@ void Fibroblast::afib_produce_cytokines(float neighborHAs) {
   float il6_cIL1  = 0.0000001f;//1.0f;
   float il6_cnHA  = 100000.0f;
   float il6_cIL10 = 100000.0f;
-  float il6_ofst  = 0.0f;
+  float il6_ofst  = Agent::baseline[IL6];//0.0f;
 
   float il8_cTGF  = 0.00000001f;//1.0f;
   float il8_cnHA  = 10000.0f;
   float il8_cIL10 = 10000.0f;
-  float il8_ofst  = 0.0f;
+  float il8_ofst  = Agent::baseline[IL8];//0.0f;
 
 #else
   // TODO: Reorder parameters
   float tgf_cTNF  = Fibroblast::cytokineSynthesis[0];
   float tgf_cIL10 = Fibroblast::cytokineSynthesis[1];
-  float tgf_ofst  = Fibroblast::cytokineSynthesis[2];
+  float tgf_ofst  = Agent::baseline[TGF];
 
   float fgf_cTGF = 5.2e-3;
   float fgf_ofst = util::randFloatRange(1.0f, 1.6f, seed_arr)*(1e-7);
 
-  float tnf_cTGF  = Fibroblast::cytokineSynthesis[3];
-  float tnf_cIL10 = Fibroblast::cytokineSynthesis[4];
-  float tnf_cnHA  = Fibroblast::cytokineSynthesis[5];
-  float tnf_ofst  = Fibroblast::cytokineSynthesis[6];
+  float tnf_cTGF  = Fibroblast::cytokineSynthesis[2];
+  float tnf_cIL10 = Fibroblast::cytokineSynthesis[3];
+  float tnf_cnHA  = Fibroblast::cytokineSynthesis[4];
+  float tnf_ofst  = Agent::baseline[TNF];
 
-  float il6_cIL6  = Fibroblast::cytokineSynthesis[7];
-  float il6_cTGF  = Fibroblast::cytokineSynthesis[8];
-  float il6_cTNF  = Fibroblast::cytokineSynthesis[9];
-  float il6_cIL1  = Fibroblast::cytokineSynthesis[10];
-  float il6_cnHA  = Fibroblast::cytokineSynthesis[11];
-  float il6_cIL10 = Fibroblast::cytokineSynthesis[12];
-  float il6_ofst  = Fibroblast::cytokineSynthesis[13];
+  float il6_cIL6  = Fibroblast::cytokineSynthesis[5];
+  float il6_cTGF  = Fibroblast::cytokineSynthesis[6];
+  float il6_cTNF  = Fibroblast::cytokineSynthesis[7];
+  float il6_cIL1  = Fibroblast::cytokineSynthesis[8];
+  float il6_cnHA  = Fibroblast::cytokineSynthesis[9];
+  float il6_cIL10 = Fibroblast::cytokineSynthesis[10];
+  float il6_ofst  = Agent::baseline[IL6];
 
-  float il8_cTGF  = Fibroblast::cytokineSynthesis[14];
-  float il8_cnHA  = Fibroblast::cytokineSynthesis[15];
-  float il8_cIL10 = Fibroblast::cytokineSynthesis[16];
-  float il8_ofst  = Fibroblast::cytokineSynthesis[17];
+  float il8_cTGF  = Fibroblast::cytokineSynthesis[11];
+  float il8_cnHA  = Fibroblast::cytokineSynthesis[12];
+  float il8_cIL10 = Fibroblast::cytokineSynthesis[13];
+  float il8_ofst  = Agent::baseline[IL8];
 
 #endif
 
@@ -700,28 +593,30 @@ void Fibroblast::get_rn_from_list(
 #endif
 
   int target, randInt;
-  int n = damagedneighbors.size();
-  int i8 = -2;	// index of target = 8
-  int i = 0;
-  for (i = 0; i < n; i++) {
-  	int target = damagedneighbors[i];
-  	if (target > 8) {
-  		i8 = i-1;
-  		break;
-  	}
-  }
+//  int n = damagedneighbors.size();
+//  int i8 = -2;	// index of target = 8
+//  int i = 0;
+//  for (i = 0; i < n; i++) {
+//  	int target = damagedneighbors[i];
+//  	if (target > 8) {
+//  		i8 = i-1;
+//  		break;
+//  	}
+//  }
+//
+//  if (i8 == -2) i8 = i-1;
+//
+//
+//  if (i8 == -1) {
+//  	randInt = rand_r(&(agentWorldPtr->seeds[tid])) % damagedneighbors.size();
+//  } else if (i8 == 0) {
+//  	randInt = 0;
+//  } else {
+//  	randInt = rand_r(&(agentWorldPtr->seeds[tid])) % i8;
+//  }
 
-  if (i8 == -2) i8 = i-1;
 
-
-  if (i8 == -1) {
-  	randInt = rand_r(&(agentWorldPtr->seeds[tid])) % damagedneighbors.size();
-  } else if (i8 == 0) {
-  	randInt = 0;
-  } else {
-  	randInt = rand_r(&(agentWorldPtr->seeds[tid])) % i8;
-  }
-//  randInt = rand_r(&(agentWorldPtr->seeds[tid])) % damagedneighbors.size();
+  randInt = rand_r(&(agentWorldPtr->seeds[tid])) % damagedneighbors.size();
 
   target = damagedneighbors[randInt];
 	dX = Agent::dX[target];
@@ -957,7 +852,7 @@ float Fibroblast::make_elas_monomers(
 
   Agent::agentECMPtr[target].addMonomerEla(newMonomers);
   // debug vis
-//  Agent::agentWorldPtr->incECM(target, m_col, 1.0f);
+  Agent::agentWorldPtr->incECM(target, m_ela, 1.0f);
   return newMonomers;
 }
 
@@ -998,7 +893,7 @@ float Fibroblast::make_hyaluronans(
   // TODO(NS): ADD REF
   Agent::agentECMPtr[target].addHAs(Agent::agentWorldPtr->clock + 100, newhya);
   // debug vis
-//  Agent::agentWorldPtr->incECM(target, m_col, 1.0f);
+//  Agent::agentWorldPtr->incECM(target, m_hya, norm_stim*3.75f);
 
   return newhya;
 

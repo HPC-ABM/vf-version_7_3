@@ -111,6 +111,19 @@ class Macrophage: public Agent {
     void activatedmac_cellFunction();
 
     /*
+     * Description:     Call cytokine production functions for myofibroblasts
+     *
+     *                  TODO(NS): INSERT REF
+     *
+     *
+     * Return: void
+     *
+     * Parameters: void
+     */
+    void amac_produce_cytokines();
+
+
+    /*
      * Description:	Moves a macrophage along its preferred chemical gradient.
      *
      * Return: void

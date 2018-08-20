@@ -283,7 +283,7 @@ void ECM::ECMFunction() {
 #ifdef PROFILE_ECM
 	gettimeofday(&t0, NULL);
 #endif
-	if (monomer_col[read_t] >= 10) {  // TODO after sensitivity
+	if (polymer_col >= MAX_COL) {  // TODO after sensitivity
 		this->set_dirty();
 		scarIndex = true;                                 // FIXME
 	}
@@ -627,7 +627,7 @@ void ECM::updateECM() {
 			float np = mcoll/mp_CollRatio;
 			float npc_floor = std::floor(np);
 			this->polymer_col += npc_floor;
-			this->monomer_col[write_t] = np-npc_floor;     // monomer after conversion
+			this->monomer_col[write_t] = (np-npc_floor)*mp_CollRatio;     // monomer after conversion
 			this->ECMWorldPtr->incECM(this->index, m_col, npc_floor);
 		}
 
@@ -635,7 +635,7 @@ void ECM::updateECM() {
 			float np = melas/mp_ElasRatio;
 			float npe_floor = std::floor(np);
 			this->polymer_ela += npe_floor;
-			this->monomer_ela[write_t] = np-npe_floor;     // monomer after conversion
+			this->monomer_ela[write_t] = (np-npe_floor)*mp_ElasRatio;     // monomer after conversion
 			this->ECMWorldPtr->incECM(this->index, m_ela, npe_floor);
 		}
 
@@ -699,8 +699,9 @@ void ECM::addHAs(int expTick, float nHA)
 
 	float currHA = 0.0f;
 	int tick = expTick;
+	int currTick = this->ECMWorldPtr->getTick();
 	// default life = 100 ticks
-	if (expTick == -1) tick = this->ECMWorldPtr->getTick() + 100;
+	if (expTick == -1) tick = currTick + 100;
 
 
 	//	this->lock(); 		// prevent data race
@@ -726,9 +727,15 @@ void ECM::addHAs(int expTick, float nHA)
 		// update total HA with NEW amount
 		this->totalHA[write_t] += nHA;
 
-		//#ifdef VISUALIZATION
-		// Update ECM polymer map
-		this->ECMWorldPtr->incECM(this->index, m_hya, nHA);
+		//#ifdef VISUALIZATION)
+		if (currTick > 0 )
+		{
+			// Update ECM polymer map
+			this->ECMWorldPtr->incECM(this->index, m_hya, nHA);
+		} else {
+			// Update ECM polymer map
+			this->ECMWorldPtr->setECM(this->index, m_hya, nHA);
+		}
 		//#endif	// VISUALIZATION
 
 	}

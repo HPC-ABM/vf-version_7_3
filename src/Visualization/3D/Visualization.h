@@ -100,6 +100,10 @@ namespace visualization {
   bool waitForCompute(); 
 #endif
 
+  extern bool simulationDone;
+  bool isFinished();
+  bool isPaused();
+
   void getTotalChem();
   void getTotalCell();
   void initWndGrid();

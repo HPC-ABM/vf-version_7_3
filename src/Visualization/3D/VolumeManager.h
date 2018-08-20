@@ -43,6 +43,35 @@ typedef float VolumeType;
 extern "C" void setTextureFilterMode(bool bLinearFilter);
 extern "C" void bufferECMmap(cudaMemcpy3DParms copyParams);
 extern "C" void initCuda(void *h_volume, cudaExtent volumeSize, cudaMemcpy3DParms &copyParams, ecm_i ecmType);
+
+extern "C" void printCpyParams(cudaMemcpy3DParms cp);
+
+#ifdef AVEP
+
+extern "C" void initCudaAVEP(
+		void *h_volume,
+		cudaExtent volumeSize,
+		cudaMemcpy3DParms &copyParams,
+		cudaMemcpy3DParms &svCopyParams,
+		ecm_i ecmType);
+
+#ifdef AVEP_INC
+extern "C"
+void bufferECMmapAVEP(
+		cudaMemcpy3DParms copyParams,
+		cudaMemcpy3DParms svCopyParams,
+		ecm_i ecmType,
+		int incRound,
+		float incFactor);
+#else
+extern "C"
+void bufferECMmapAVEP(
+		cudaMemcpy3DParms copyParams,
+		cudaMemcpy3DParms svCopyParams,
+		ecm_i ecmType);
+#endif	// AVEP_INC
+#endif	// AVEP
+
 extern "C" void freeCudaBuffers();
 extern "C" void render_kernel(dim3 gridSize, dim3 blockSize, uint *d_output, uint imageW, uint imageH,
                               float density, float brightness, float transferOffset, float transferScale);

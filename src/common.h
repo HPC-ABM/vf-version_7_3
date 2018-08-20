@@ -36,7 +36,7 @@ typedef std::vector<float> REGULATORS_T;
  * SENSITIVITY ANALYSIS AND  CALIBRATION                                     *
  *****************************************************************************/
 // Modify normal values of parameters for S.A. or calibration purposes
-//#define CALIBRATION
+#define CALIBRATION
 // Used to print new values of parameters during S.A. or calibration
 //#define PRINT_PARAMETER_VALUES
 
@@ -130,23 +130,29 @@ typedef std::vector<float> REGULATORS_T;
 // Output ECM volume map as raw file
 //#define WRITE_RAW_ECM
 // Enable Biomarker Output
-//#define BIOMARKER_OUTPUT
+#define BIOMARKER_OUTPUT
 // Enable Paraview rendering
 //#define PARAVIEW_RENDERING
 // Enable In-Situ Visualization
-#define VISUALIZATION
+//#define VISUALIZATION
 // Enable overlap visualization and computation
 //#define OVERLAP_VIS
+// Enable interactivity optimization
+//#define INTERACTIVE_VIS
+// Enable Activity-Aware Visualization of ECM Proteins
+//#define AVEP
+// Enable Activity-Aware Visualization of ECM Proteins with incremental changes
+//#define AVEP_INC
 // Enable timing functions for GL rendering
-#define TIME_GL
+//#define TIME_GL
 // Run in 3D
 #define MODEL_3D
 // Initialize Vocal Fold Morphology
 #define MODEL_VOCALFOLD
 // Human size
-#define HUMAN_VF
+//#define HUMAN_VF
 // Rat size
-//#define RAT_VF
+#define RAT_VF
 // Use PEVOC scale parameters 	(Obsolete?)
 //#define PEVOC_SCALE
 // Use PDE based chemical diffusion
@@ -291,23 +297,36 @@ typedef std::vector<float> REGULATORS_T;
 #define AV_NORM_HYA_ILP         3600.0f                  // 3.6e6 = 3600e3 polymers/patch
 
 #ifdef VISUALIZATION
+#ifdef RAT_VF
 #define FIB_COL_PROD_RATE         17.2f					 // 1.72e7 = 17.2e6			//394.0f          // 3.94e5 = 394.0e3
 #define FIB_ELA_PROD_RATE         2000.0f          // 3.45e4 = 34.5e3
 #define FIB_HYA_PROD_RATE         400.0f          // 6.58e4 = 65.8e3
-#else
-#define FIB_COL_PROD_RATE         17.2f					 // 1.72e7 = 17.2e6			//394.0f          // 3.94e5 = 394.0e3
-#define FIB_ELA_PROD_RATE         34.5f //2000.0f          // 3.45e4 = 34.5e3
-#define FIB_HYA_PROD_RATE         65.8f //400.0f          // 6.58e4 = 65.8e3
-#endif
-
-#define MAX_MONO_COL           AV_NORM_COL_DLP
-#define MAX_MONO_ELA           AV_NORM_ELA_DLP
-#define MAX_MONO_HYA					 AV_NORM_HYA_DLP
-
 
 #define CONV_RATE_COL           AV_NORM_COL_SLP //AV_NORM_COL_ILP   //  1300e3 conversion from tropocollagen to fiber rate
 #define CONV_RATE_ELA           AV_NORM_ELA_SLP   //   380e6 conversion from tropoelastin to fiber rate
 #define CONV_RATE_HYA						AV_NORM_HYA_SLP		//   3.1e6 conversion from molecules to relative unit
+#else	// RAT_VF
+#define FIB_COL_PROD_RATE         17.2f					 // 1.72e7 = 17.2e6			//394.0f          // 3.94e5 = 394.0e3
+#define FIB_ELA_PROD_RATE         34.5f          // 3.45e4 = 34.5e3
+#define FIB_HYA_PROD_RATE         65.8f          // 6.58e4 = 65.8e3
+
+#define CONV_RATE_COL          (FIB_COL_PROD_RATE*2.0f) // AV_NORM_COL_SLP           //  1300.00e3 conversion from tropocollagen to fiber rate
+#define CONV_RATE_ELA          (FIB_ELA_PROD_RATE*0.8f)   //    51.75e3 conversion from tropoelastin to fiber rate
+#define CONV_RATE_HYA					 (FIB_HYA_PROD_RATE*0.1f)		//    98.70e3 conversion from molecules to relative unit
+#endif	// RAT_VF
+#else	// VISUALIZATION
+#define FIB_COL_PROD_RATE         17.2f					 // 1.72e7 = 17.2e6			//394.0f          // 3.94e5 = 394.0e3
+#define FIB_ELA_PROD_RATE         34.5f //2000.0f          // 3.45e4 = 34.5e3
+#define FIB_HYA_PROD_RATE         65.8f //400.0f          // 6.58e4 = 65.8e3
+
+#define CONV_RATE_COL           (FIB_COL_PROD_RATE*2.0f) //AV_NORM_COL_SLP //AV_NORM_COL_ILP   //  1300e3 conversion from tropocollagen to fiber rate
+#define CONV_RATE_ELA           (FIB_ELA_PROD_RATE*0.8f) //AV_NORM_ELA_SLP   //   380e6 conversion from tropoelastin to fiber rate
+#define CONV_RATE_HYA						(FIB_HYA_PROD_RATE*0.1f) //AV_NORM_HYA_SLP		//   3.1e6 conversion from molecules to relative unit
+#endif	// VISUALIZATION
+
+#define MAX_MONO_COL           AV_NORM_COL_DLP
+#define MAX_MONO_ELA           AV_NORM_ELA_DLP
+#define MAX_MONO_HYA					 AV_NORM_HYA_DLP
 
 #ifdef HUMAN_VF
 #define MAX_COL 5.0f
@@ -321,6 +340,19 @@ typedef std::vector<float> REGULATORS_T;
 #define MAX_COL 2.0f
 #define MAX_ELA 2.0f    //4.0f
 #define MAX_HYA 1.0f
+#endif
+
+
+#ifdef AVEP
+#ifdef RAT_VF
+#define SV_W 14	//28  //10
+#define SV_H 43 //86	//171 //10
+#define SV_D 48 //71	//142 //10
+#else	// RAT_VF
+#define SV_W 37  //110
+#define SV_H 348 //1390
+#define SV_D 336 //1006
+#endif // RAT_VF
 #endif
 
 

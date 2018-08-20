@@ -94,6 +94,18 @@ class Neutrophil: public Agent {
     void aneu_cellFunction();
 
     /*
+     * Description:     Call cytokine production functions for activated neutrophils
+     *
+     *                  TODO(NS): INSERT REF
+     *
+     *
+     * Return: void
+     *
+     * Parameters: void
+     */
+    void aneu_produce_cytokines();
+
+    /*
      * Description:	Activates an unactivated neutrophil. 
      *              Updates the neutrophil class members.
      *

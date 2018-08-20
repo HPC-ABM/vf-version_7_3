@@ -303,6 +303,7 @@ void Diffuser::diffuseChemGPU(int rightWallIndex){
     int tid = 0;
 #endif	// _OMP
     for (int ic = 0; ic < nBaseChem; ic++){
+
         
 #ifdef MODEL_3D
         int ig = this->chem_cctx->gpu_id[ic];
@@ -351,7 +352,7 @@ void Diffuser::diffuseChemGPU(int rightWallIndex){
 #endif  // PROFILE_GPU
 
 #ifdef MODEL_3D
-        // DEBUG rat
+
         fftDiffuse3D(
                 this->chem_cctx->d_data[ic],
                 this->chem_cctx->d_kernelspectrum_h[ic],
