@@ -12,6 +12,8 @@
 #include <cuComplex.h>
 #include <math.h>
 
+#include "../common.h"
+
 #define  USE_TEXTURE 0//1
 #define POWER_OF_TWO 1
 

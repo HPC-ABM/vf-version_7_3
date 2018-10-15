@@ -545,19 +545,7 @@ float WHChemical::getTchem(int ic, int in)
 #ifndef GPU_DIFFUSE
   return this->pChem[ic][in];
 #else	// GPU_DIFFUSE
-
-#if !defined (CHEM_PACK4) && !defined (CHEM_PACK8)
   return this->tChem[ic][in];
-#else
-
-#ifdef CHEM_PACK8
-  return this->tChem[in].chem[ic];
-#elif defined (CHEM_PACK4)
-  return this->tChem[ic/4][in].chem[ic%4];
-#endif
-
-#endif
-
 #endif	// GPU_DIFFUSE
 }
 

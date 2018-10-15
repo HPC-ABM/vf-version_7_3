@@ -205,7 +205,7 @@ class ECM {
     float getnHA();
 
 
-    int getnfHA();
+    float getnfHA();
 
     // add collagen monomers
     void addMonomerCol(float nColl);

@@ -45,6 +45,7 @@ PlotManager         *visualization::CellPlotManager_ptr      = NULL;
 //GridSurfaceManager  *visualization::ChemSurfManager_ptr  = NULL;
 OptionTable         *visualization::ChemOptionTable_ptr  = NULL;
 OptionTable         *visualization::CellOptionTable_ptr  = NULL;
+OptionTable         *visualization::EcmOptionTable_ptr  = NULL;
 //VolumeManager       *visualization::ECMvolumeManager_Ptr = NULL;
 
 //GLuint  visualization::tissue_texture[3] = {0};	/* Storage for 3 textures. */
@@ -72,6 +73,8 @@ float4	particleColor2 = make_float4(MAXCOLOR2, MINCOLOR2, MINCOLOR2, 0.2f);//hol
 float4	particleColor3 = make_float4(0.3f, 0.1f, 0.9f, 0.15f);//holds color for particle
 
 #endif
+
+
 
 // Text labels for table:
 
@@ -118,6 +121,13 @@ GLint visualization::WG_h = 0;
 GLint visualization::WG_d = 0;
 GLint visualization::WG_numvert = 0;
 
+void setDefaultGPU()
+{
+#ifdef ECV_SAMPLE_CHEM
+    // set device
+    checkCudaErrors(cudaSetDevice(0));
+#endif	// ECV_SAMPLE_CHEM
+}
 
 void visualization::init(int argc, char** argv, WHWorld *world_ptr)
 {
@@ -239,8 +249,11 @@ const char *sReference[] =
 //char *volumeFilename = "/fs/HPC_ABMs/GitProjects/vocalcord-cpuabm-v6/src/Visualization/3D/data/mrt16_angio.raw";
 //cudaExtent volumeSize = make_cudaExtent(416, 512, 112);
 
-
+#ifdef ECV_SEPARATE
 uint width = 800, height = 800;
+#else
+uint width = 1440, height = 900;
+#endif
 //uint width = 512, height = 512;
 dim3 blockSize(16, 16);
 dim3 gridSize;
@@ -273,7 +286,11 @@ int maxRounds = static_cast<int>(maxRoundf);
 GLuint ecm_pbo[m_ecmtotal] = {0, 0, 0};     // OpenGL pixel buffer object
 GLuint ecm_tex[m_ecmtotal] = {0, 0, 0};     // OpenGL texture object
 
+GLuint chem_pbo[numchem] = {0, 0, 0};       // OpenGL pixel buffer object
+GLuint chem_tex[numchem] = {0, 0, 0};       // OpenGL texture object
+
 struct cudaGraphicsResource *cuda_pbo_resource[m_ecmtotal]; // CUDA Graphics Resource (to transfer PBO)
+struct cudaGraphicsResource *cuda_pbo_resource_chem[numchem]; // CUDA Graphics Resource (to transfer PBO)
 
 
 
@@ -282,11 +299,13 @@ StopWatchInterface *timer = 0;
 // Auto-Verification Code
 const int frameCheckNumber = 2;
 int fpsCount = 0;        // FPS count for averaging
-int fpsLimit = 1;        // FPS limit for sampling
+int fpsLimit = 50;//1;        // FPS limit for sampling
 int g_Index = 0;
 unsigned int frameCount = 0;
 unsigned int frameIter = 0;
 float fpsSum = 0.0f;
+float fpsAvg = 0.0f;
+float fpsCur = 0.0f;
 
 int *pArgc;
 char **pArgv;
@@ -315,7 +334,9 @@ void computeFPS()
         frameIter++;
         fpsSum += ifps;
 
-        printf("Average: %3.1f fps\n", fpsSum/frameIter);
+        fpsCur = ifps;
+        fpsAvg = fpsSum/frameIter;
+        printf("Average: %3.1f fps\n", fpsAvg);
 
     }
 }
@@ -324,6 +345,10 @@ void computeFPS()
 // render image using CUDA
 void render(ecm_i ecm_index)
 {
+#ifdef ECV_SAMPLE_CHEM
+    // set device
+//    checkCudaErrors(cudaSetDevice(1));
+#endif	// ECV_SAMPLE_CHEM
 
     copyInvViewMatrix(invViewMatrix, sizeof(float4)*3);
 
@@ -351,12 +376,118 @@ void render(ecm_i ecm_index)
     		volumeSize.depth,
     		width, height,
     		density, brightness, transferOffset, transferScale,
-    		ecm_index);
+    		ecm_index,
+    		false);
 
 
     getLastCudaError("kernel failed");
 
     checkCudaErrors(cudaGraphicsUnmapResources(1, &cuda_pbo_resource[ecm_index], 0));
+}
+
+#ifdef ECV_SAMPLE_CHEM_TEST
+void render_chem(ChemType ci, bool isHigh)
+{
+    // set device
+    checkCudaErrors(cudaSetDevice(ci%2));	// N GPU = 2
+
+    int chem_index = isHigh? 0: 2;
+
+//    printf("rendering chem comparison: [%d] with GPU [%d] on panel [%d]\n", ci, ci%2, chem_index);
+    copyInvViewMatrix(invViewMatrix, sizeof(float4)*3);
+    // map PBO to get CUDA device pointer
+    uint *d_output;
+    // map PBO to get CUDA device pointer
+    checkCudaErrors(cudaGraphicsMapResources(1, &cuda_pbo_resource_chem[chem_index], 0));
+    size_t num_bytes;
+    checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&d_output, &num_bytes,
+    		cuda_pbo_resource_chem[chem_index]));
+
+    // clear image
+    checkCudaErrors(cudaMemset(d_output, 0, width*height*4));
+
+    // call CUDA kernel, writing results to PBO
+
+    int stride = isHigh? ECV_SAMPLE_STRIDE_HGH : ECV_SAMPLE_STRIDE_LOW;
+    render_test_kernel_dim(
+    		gridSize,
+    		blockSize,
+    		d_output,
+    		volumeSize.width/stride,
+    		volumeSize.height/stride,
+    		volumeSize.depth/stride,
+    		width, height,
+    		density, brightness, transferOffset+0.5f, transferScale,
+    		ci,
+    		isHigh);
+
+
+    getLastCudaError("kernel failed");
+
+    checkCudaErrors(cudaGraphicsUnmapResources(1, &cuda_pbo_resource_chem[chem_index], 0));
+
+  	// set default GPU back to 0
+  	setDefaultGPU();
+}
+#endif
+
+void render_chem(ChemType chem_index)
+{
+#ifndef ECV_SINGLE_PASS
+#ifdef ECV_SAMPLE_CHEM
+    // set device
+    checkCudaErrors(cudaSetDevice(chem_index%2));	// N GPU = 2
+    printf("rendering chem: [%d] with GPU [%d]\n", chem_index, chem_index%2);
+#endif	// ECV_SAMPLE_CHEM
+#endif	// ! ECV_SINGLE_PASS
+
+    copyInvViewMatrix(invViewMatrix, sizeof(float4)*3);
+    // map PBO to get CUDA device pointer
+    uint *d_output;
+    // map PBO to get CUDA device pointer
+    checkCudaErrors(cudaGraphicsMapResources(1, &cuda_pbo_resource_chem[chem_index], 0));
+    size_t num_bytes;
+    checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&d_output, &num_bytes,
+    		cuda_pbo_resource_chem[chem_index]));
+    //printf("CUDA mapped PBO: May access %ld bytes\n", num_bytes);
+
+    // clear image
+    checkCudaErrors(cudaMemset(d_output, 0, width*height*4));
+
+    // call CUDA kernel, writing results to PBO
+
+#ifdef ECV_SINGLE_PASS
+    render_sp_kernel_dim(
+    		gridSize,
+    		blockSize,
+    		d_output,
+    		volumeSize.width/ECV_SAMPLE_STRIDE,
+    		volumeSize.height/ECV_SAMPLE_STRIDE,
+    		volumeSize.depth/ECV_SAMPLE_STRIDE,
+    		width, height,
+    		density, brightness, transferOffset+0.5f, transferScale,
+    		chem_index);
+#else	// ECV_SINGLE_PASS
+    render_kernel_dim(
+    		gridSize,
+    		blockSize,
+    		d_output,
+    		volumeSize.width/ECV_SAMPLE_STRIDE,
+    		volumeSize.height/ECV_SAMPLE_STRIDE,
+    		volumeSize.depth/ECV_SAMPLE_STRIDE,
+    		width, height,
+    		density, brightness, transferOffset, transferScale,
+    		chem_index,
+    		true);
+#endif	// ECV_SINGLE_PASS
+
+
+    getLastCudaError("kernel failed");
+
+    checkCudaErrors(cudaGraphicsUnmapResources(1, &cuda_pbo_resource_chem[chem_index], 0));
+
+  	// set default GPU back to 0
+  	setDefaultGPU();
 }
 
 
@@ -397,10 +528,543 @@ void update_SubVolumeCopyParams(cudaMemcpy3DParms &svCopyParams, int i, int j, i
 #endif	// AVEP
 
 
-// display results using OpenGL (called by GLUT)
-void display()
+#ifdef ECV_SAMPLE_CHEM_TEST
+// display results
+// with ECV_SINGLE_PASS enabled
+void display_ecv_res_test()
 {
+    sdkStartTimer(&timer);
 
+    // use OpenGL to build view matrix
+    GLfloat modelView[16];
+    glMatrixMode(GL_MODELVIEW);
+    glPushMatrix();
+    glLoadIdentity();
+    glRotatef(-viewRotation.x, 1.0, 0.0, 0.0);
+    glRotatef(-viewRotation.y, 0.0, 1.0, 0.0);
+    glTranslatef(-viewTranslation.x, -viewTranslation.y, -viewTranslation.z);
+    glGetFloatv(GL_MODELVIEW_MATRIX, modelView);
+    glPopMatrix();
+
+    invViewMatrix[0] = modelView[0];
+    invViewMatrix[1] = modelView[4];
+    invViewMatrix[2] = modelView[8];
+    invViewMatrix[3] = modelView[12];
+    invViewMatrix[4] = modelView[1];
+    invViewMatrix[5] = modelView[5];
+    invViewMatrix[6] = modelView[9];
+    invViewMatrix[7] = modelView[13];
+    invViewMatrix[8] = modelView[2];
+    invViewMatrix[9] = modelView[6];
+    invViewMatrix[10] = modelView[10];
+    invViewMatrix[11] = modelView[14];
+
+    // for white/black bg
+    if (isWBG)
+    {
+    	glClearColor(1.0f, 1.0f, 1.0f, 1.0f);           // This Will Clear The Background Color To White
+    } else {
+    	glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+    }
+    // display results
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    // draw image from PBO
+    glDisable(GL_DEPTH_TEST);
+
+    // for white bg
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+
+
+    /**************************************/
+    /* Perform ray-casting on ECMs				*/
+    /**************************************/
+
+    for (int i = 0; i < m_ecmtotal; i++)
+    {
+    	ecm_i ei = static_cast<ecm_i>(i);
+    	render(ei);
+    }
+
+    /**************************************/
+    /* Render ECMs - Collagen							*/
+    /**************************************/
+    // draw using texture
+    for (int i = 0; i < 1; i++)
+    {
+    	ecm_i ei = static_cast<ecm_i>(i);
+    	// copy from pbo to texture
+    	glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, ecm_pbo[ei]);
+    	glBindTexture(GL_TEXTURE_2D, ecm_tex[ei]);
+    	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, 0);
+    	glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
+
+    	// draw textured quad
+    	glEnable(GL_TEXTURE_2D);
+    	glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+    	glBegin(GL_QUADS);
+#ifdef	ECV_SEPARATE
+    	glTexCoord2f(0, 0); glVertex2f(0.0, 0.1);
+    	glTexCoord2f(1, 0); glVertex2f(0.5, 0.1);
+    	glTexCoord2f(1, 1); glVertex2f(0.5, 0.9);
+    	glTexCoord2f(0, 1); glVertex2f(0.0, 0.9);
+
+    	// render ECM skeleton as background for chem vis
+//    	glColor4f(1.0f, 1.0f, 1.0f, 0.3f);
+    	glTexCoord2f(0, 0); glVertex2f(0.5, 0.1);
+    	glTexCoord2f(1, 0); glVertex2f(1.0, 0.1);
+    	glTexCoord2f(1, 1); glVertex2f(1.0, 0.9);
+    	glTexCoord2f(0, 1); glVertex2f(0.5, 0.9);
+
+    	glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+#else	// ECV_SEPARATE
+    	glTexCoord2f(0, 0); glVertex2f(0, 0);
+    	glTexCoord2f(1, 0); glVertex2f(1, 0);
+    	glTexCoord2f(1, 1); glVertex2f(1, 1);
+    	glTexCoord2f(0, 1); glVertex2f(0, 1);
+#endif	// ECV_SEPARATE
+    	glEnd();
+
+    	glDisable(GL_TEXTURE_2D);
+    	glBindTexture(GL_TEXTURE_2D, 0);
+    }
+
+
+    /**********************************************/
+    /* Perform ray-casting on chemical data				*/
+    /**********************************************/
+    int chemInd = 0;
+    ChemType chemType = static_cast<ChemType>(chemInd);
+    render_chem(chemType, false);
+    render_chem(chemType, true);
+
+    /**********************************************/
+    /* Render chemical data												*/
+    /**********************************************/
+    for (int buf_i = 0; buf_i < 3; buf_i += 2) {
+//    int buf_i = 0;
+    	// set device
+    	checkCudaErrors(cudaSetDevice(0));
+
+    	// draw using texture
+    	// copy from pbo to texture
+    	glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, chem_pbo[buf_i]);
+    	glBindTexture(GL_TEXTURE_2D, chem_tex[buf_i]);
+    	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, 0);
+    	glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
+
+    	// draw textured quad
+    	glEnable(GL_TEXTURE_2D);
+    	glColor4f(1.0f, 1.0f, 1.0f, 0.8f);
+    	glBegin(GL_QUADS);
+#ifdef ECV_SEPARATE
+    	if (buf_i == 0) {
+
+    		glTexCoord2f(0, 0); glVertex2f(0.0, 0.1);
+    		glTexCoord2f(1, 0); glVertex2f(0.5, 0.1);
+    		glTexCoord2f(1, 1); glVertex2f(0.5, 0.9);
+    		glTexCoord2f(0, 1); glVertex2f(0.0, 0.9);
+
+    	} else {
+
+    		glTexCoord2f(0, 0); glVertex2f(0.5, 0.1);
+    		glTexCoord2f(1, 0); glVertex2f(1.0, 0.1);
+    		glTexCoord2f(1, 1); glVertex2f(1.0, 0.9);
+    		glTexCoord2f(0, 1); glVertex2f(0.5, 0.9);
+
+    	}
+#else	// ECV_SEPARATE
+    	glTexCoord2f(0, 0); glVertex2f(0, 0);
+    	glTexCoord2f(1, 0); glVertex2f(1, 0);
+    	glTexCoord2f(1, 1); glVertex2f(1, 1);
+    	glTexCoord2f(0, 1); glVertex2f(0, 1);
+#endif	// ECV_SEPARATE
+    	glEnd();
+
+    	glDisable(GL_TEXTURE_2D);
+    	glBindTexture(GL_TEXTURE_2D, 0);
+    }
+
+    /**************************************/
+    /* Render ECMs - Elastin and HAs			*/
+    /**************************************/
+    // draw using texture
+    for (int i = 1; i < m_ecmtotal; i++)
+    {
+    	ecm_i ei = static_cast<ecm_i>(i);
+    	// copy from pbo to texture
+    	glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, ecm_pbo[ei]);
+    	glBindTexture(GL_TEXTURE_2D, ecm_tex[ei]);
+    	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, 0);
+    	glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
+
+    	// draw textured quad
+    	glEnable(GL_TEXTURE_2D);
+    	glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+    	glBegin(GL_QUADS);
+#ifdef	ECV_SEPARATE
+    	glTexCoord2f(0, 0); glVertex2f(0.0, 0.1);
+    	glTexCoord2f(1, 0); glVertex2f(0.5, 0.1);
+    	glTexCoord2f(1, 1); glVertex2f(0.5, 0.9);
+    	glTexCoord2f(0, 1); glVertex2f(0.0, 0.9);
+
+    	// render ECM skeleton as background for chem vis
+//    	glColor4f(1.0f, 1.0f, 1.0f, 0.3f);
+    	glTexCoord2f(0, 0); glVertex2f(0.5, 0.1);
+    	glTexCoord2f(1, 0); glVertex2f(1.0, 0.1);
+    	glTexCoord2f(1, 1); glVertex2f(1.0, 0.9);
+    	glTexCoord2f(0, 1); glVertex2f(0.5, 0.9);
+
+    	glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+#else	// ECV_SEPARATE
+    	glTexCoord2f(0, 0); glVertex2f(0, 0);
+    	glTexCoord2f(1, 0); glVertex2f(1, 0);
+    	glTexCoord2f(1, 1); glVertex2f(1, 1);
+    	glTexCoord2f(0, 1); glVertex2f(0, 1);
+#endif	// ECV_SEPARATE
+    	glEnd();
+
+    	glDisable(GL_TEXTURE_2D);
+    	glBindTexture(GL_TEXTURE_2D, 0);
+    }
+
+
+  	// set default GPU back to 0
+  	setDefaultGPU();
+
+
+    /*
+     *	Set the orthographic viewing transformation
+     */
+    double w = glutGet( GLUT_WINDOW_WIDTH );
+    double h = glutGet( GLUT_WINDOW_HEIGHT );
+
+    glMatrixMode(GL_PROJECTION);
+    glPushMatrix();
+    glLoadIdentity();
+
+    glOrtho(0,w,h,0,-1,1);
+    glMatrixMode(GL_MODELVIEW);
+    glPushMatrix();
+    glLoadIdentity();
+
+    glViewport(0,0,w,h);
+
+    /*
+     *	Draw the 2D overlay
+     */
+    Draw2D_ECV();
+
+    glMatrixMode(GL_PROJECTION);
+    glPopMatrix();
+    glMatrixMode(GL_MODELVIEW);
+    glPopMatrix();
+
+    glEnable(GL_DEPTH_TEST);
+
+    glutSwapBuffers();
+    glutReportErrors();
+
+  for (int ein = 0; ein < m_ecmtotal; ein++)
+  {
+      	ecm_i ei = static_cast<ecm_i>(ein);
+
+#ifdef AVEP
+
+      	for (int k = 0; k < svGridSize.depth; k++)
+      	{
+      		for (int j = 0; j < svGridSize.height; j++)
+      		{
+      			for (int i = 0; i < svGridSize.width; i++)
+      			{
+
+      				if (!world_ptr->isDirtyAVEP(i, j, k, ei)) continue;
+
+      				update_SubVolumeCopyParams(svCopyParams[ei], i, j, k);
+
+      				bufferECMmapAVEP(copyParams[ei], svCopyParams[ei], ei);
+      				world_ptr->resetDirtyAVEP(i, j, k, ei);
+
+      			}
+      		}
+      	}
+#else
+      	bufferECMmap(copyParams[ei]);
+#endif
+  }
+
+  sdkStopTimer(&timer);
+  computeFPS();
+}
+#endif	// ECV_SAMPLE_CHEM_TEST
+
+// display results
+// with ECV_SINGLE_PASS enabled
+void display_ecv_single_pass()
+{
+    sdkStartTimer(&timer);
+
+    // use OpenGL to build view matrix
+    GLfloat modelView[16];
+    glMatrixMode(GL_MODELVIEW);
+    glPushMatrix();
+    glLoadIdentity();
+    glRotatef(-viewRotation.x, 1.0, 0.0, 0.0);
+    glRotatef(-viewRotation.y, 0.0, 1.0, 0.0);
+    glTranslatef(-viewTranslation.x, -viewTranslation.y, -viewTranslation.z);
+    glGetFloatv(GL_MODELVIEW_MATRIX, modelView);
+    glPopMatrix();
+
+    invViewMatrix[0] = modelView[0];
+    invViewMatrix[1] = modelView[4];
+    invViewMatrix[2] = modelView[8];
+    invViewMatrix[3] = modelView[12];
+    invViewMatrix[4] = modelView[1];
+    invViewMatrix[5] = modelView[5];
+    invViewMatrix[6] = modelView[9];
+    invViewMatrix[7] = modelView[13];
+    invViewMatrix[8] = modelView[2];
+    invViewMatrix[9] = modelView[6];
+    invViewMatrix[10] = modelView[10];
+    invViewMatrix[11] = modelView[14];
+
+    // for white bg
+    if (isWBG)
+    {
+    	glClearColor(1.0f, 1.0f, 1.0f, 1.0f);           // This Will Clear The Background Color To White
+    } else {
+    	glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+    }
+    // display results
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    // draw image from PBO
+    glDisable(GL_DEPTH_TEST);
+
+    // for white bg
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+
+
+    /**************************************/
+    /* Perform ray-casting on ECMs				*/
+    /**************************************/
+
+    for (int i = 0; i < m_ecmtotal; i++)
+    {
+    	ecm_i ei = static_cast<ecm_i>(i);
+    	render(ei);
+    }
+
+    /**************************************/
+    /* Render ECMs - Collagen							*/
+    /**************************************/
+    // draw using texture
+    for (int i = 0; i < 1; i++)
+    {
+    	ecm_i ei = static_cast<ecm_i>(i);
+    	// copy from pbo to texture
+    	glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, ecm_pbo[ei]);
+    	glBindTexture(GL_TEXTURE_2D, ecm_tex[ei]);
+    	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, 0);
+    	glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
+
+    	// draw textured quad
+    	glEnable(GL_TEXTURE_2D);
+    	glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+    	glBegin(GL_QUADS);
+#ifdef	ECV_SEPARATE
+    	glTexCoord2f(0, 0); glVertex2f(0.0, 0.1);
+    	glTexCoord2f(1, 0); glVertex2f(0.5, 0.1);
+    	glTexCoord2f(1, 1); glVertex2f(0.5, 0.9);
+    	glTexCoord2f(0, 1); glVertex2f(0.0, 0.9);
+
+    	// render ECM skeleton as background for chem vis
+    	glColor4f(1.0f, 1.0f, 1.0f, 0.3f);
+    	glTexCoord2f(0, 0); glVertex2f(0.5, 0.1);
+    	glTexCoord2f(1, 0); glVertex2f(1.0, 0.1);
+    	glTexCoord2f(1, 1); glVertex2f(1.0, 0.9);
+    	glTexCoord2f(0, 1); glVertex2f(0.5, 0.9);
+
+    	glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+#else	// ECV_SEPARATE
+    	glTexCoord2f(0, 0); glVertex2f(0, 0);
+    	glTexCoord2f(1, 0); glVertex2f(1, 0);
+    	glTexCoord2f(1, 1); glVertex2f(1, 1);
+    	glTexCoord2f(0, 1); glVertex2f(0, 1);
+#endif	// ECV_SEPARATE
+    	glEnd();
+
+    	glDisable(GL_TEXTURE_2D);
+    	glBindTexture(GL_TEXTURE_2D, 0);
+    }
+
+
+    /**********************************************/
+    /* Perform ray-casting on chemical data				*/
+    /**********************************************/
+    int n_gpu = 2;	// TODO: Put N_GPU in common.h
+    for (int gpui = 0; gpui < n_gpu; gpui++) {
+    	// set device
+    	checkCudaErrors(cudaSetDevice(gpui));
+
+    	// ray-casting render
+    	ChemType gpu_id = static_cast<ChemType>(gpui);
+    	render_chem(gpu_id);
+    }
+
+    /**********************************************/
+    /* Render chemical data												*/
+    /**********************************************/
+    for (int gpui = 0; gpui < n_gpu; gpui++) {
+    	// set device
+    	checkCudaErrors(cudaSetDevice(gpui));
+
+    	// draw using texture
+    	// copy from pbo to texture
+    	glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, chem_pbo[gpui]);
+    	glBindTexture(GL_TEXTURE_2D, chem_tex[gpui]);
+    	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, 0);
+    	glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
+
+    	// draw textured quad
+    	glEnable(GL_TEXTURE_2D);
+    	glColor4f(1.0f, 1.0f, 1.0f, 0.80f);
+    	glBegin(GL_QUADS);
+#ifdef ECV_SEPARATE
+    	glTexCoord2f(0, 0); glVertex2f(0.5, 0.1);
+    	glTexCoord2f(1, 0); glVertex2f(1.0, 0.1);
+    	glTexCoord2f(1, 1); glVertex2f(1.0, 0.9);
+    	glTexCoord2f(0, 1); glVertex2f(0.5, 0.9);
+#else	// ECV_SEPARATE
+    	glTexCoord2f(0, 0); glVertex2f(0, 0);
+    	glTexCoord2f(1, 0); glVertex2f(1, 0);
+    	glTexCoord2f(1, 1); glVertex2f(1, 1);
+    	glTexCoord2f(0, 1); glVertex2f(0, 1);
+#endif	// ECV_SEPARATE
+    	glEnd();
+
+    	glDisable(GL_TEXTURE_2D);
+    	glBindTexture(GL_TEXTURE_2D, 0);
+    }
+
+    /**************************************/
+    /* Render ECMs - Elastin and HAs			*/
+    /**************************************/
+    // draw using texture
+    for (int i = 1; i < m_ecmtotal; i++)
+    {
+    	ecm_i ei = static_cast<ecm_i>(i);
+    	// copy from pbo to texture
+    	glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, ecm_pbo[ei]);
+    	glBindTexture(GL_TEXTURE_2D, ecm_tex[ei]);
+    	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, 0);
+    	glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
+
+    	// draw textured quad
+    	glEnable(GL_TEXTURE_2D);
+    	glBegin(GL_QUADS);
+    	glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+#ifdef	ECV_SEPARATE
+    	glTexCoord2f(0, 0); glVertex2f(0.0, 0.1);
+    	glTexCoord2f(1, 0); glVertex2f(0.5, 0.1);
+    	glTexCoord2f(1, 1); glVertex2f(0.5, 0.9);
+    	glTexCoord2f(0, 1); glVertex2f(0.0, 0.9);
+
+    	// render ECM skeleton as background for chem vis
+    	glColor4f(1.0f, 1.0f, 1.0f, 0.3f);
+    	glTexCoord2f(0, 0); glVertex2f(0.5, 0.1);
+    	glTexCoord2f(1, 0); glVertex2f(1.0, 0.1);
+    	glTexCoord2f(1, 1); glVertex2f(1.0, 0.9);
+    	glTexCoord2f(0, 1); glVertex2f(0.5, 0.9);
+
+    	glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+#else	// ECV_SEPARATE
+    	glTexCoord2f(0, 0); glVertex2f(0, 0);
+    	glTexCoord2f(1, 0); glVertex2f(1, 0);
+    	glTexCoord2f(1, 1); glVertex2f(1, 1);
+    	glTexCoord2f(0, 1); glVertex2f(0, 1);
+#endif	// ECV_SEPARATE
+    	glEnd();
+
+    	glDisable(GL_TEXTURE_2D);
+    	glBindTexture(GL_TEXTURE_2D, 0);
+    }
+
+
+  	// set default GPU back to 0
+  	setDefaultGPU();
+
+
+    /*
+     *	Set the orthographic viewing transformation
+     */
+    double w = glutGet( GLUT_WINDOW_WIDTH );
+    double h = glutGet( GLUT_WINDOW_HEIGHT );
+
+    glMatrixMode(GL_PROJECTION);
+    glPushMatrix();
+    glLoadIdentity();
+
+    glOrtho(0,w,h,0,-1,1);
+    glMatrixMode(GL_MODELVIEW);
+    glPushMatrix();
+    glLoadIdentity();
+
+    glViewport(0,0,w,h);
+
+    /*
+     *	Draw the 2D overlay
+     */
+    Draw2D_ECV();
+
+    glMatrixMode(GL_PROJECTION);
+    glPopMatrix();
+    glMatrixMode(GL_MODELVIEW);
+    glPopMatrix();
+
+    glEnable(GL_DEPTH_TEST);
+
+    glutSwapBuffers();
+    glutReportErrors();
+
+  for (int ein = 0; ein < m_ecmtotal; ein++)
+  {
+      	ecm_i ei = static_cast<ecm_i>(ein);
+
+#ifdef AVEP
+
+      	for (int k = 0; k < svGridSize.depth; k++)
+      	{
+      		for (int j = 0; j < svGridSize.height; j++)
+      		{
+      			for (int i = 0; i < svGridSize.width; i++)
+      			{
+
+      				if (!world_ptr->isDirtyAVEP(i, j, k, ei)) continue;
+
+      				update_SubVolumeCopyParams(svCopyParams[ei], i, j, k);
+
+      				bufferECMmapAVEP(copyParams[ei], svCopyParams[ei], ei);
+      				world_ptr->resetDirtyAVEP(i, j, k, ei);
+
+      			}
+      		}
+      	}
+#else
+      	bufferECMmap(copyParams[ei]);
+#endif
+  }
+
+  sdkStopTimer(&timer);
+  computeFPS();
+}
+
+void display_ecv_multi_pass()
+{
 #ifdef AVEP_INC
 	incRound = world_ptr->_iround;
 #endif
@@ -435,16 +1099,16 @@ void display()
     invViewMatrix[10] = modelView[10];
     invViewMatrix[11] = modelView[14];
 
-    for (int i = 0; i < m_ecmtotal; i++) {
-    	ecm_i ei = static_cast<ecm_i>(i);
-    	render(ei);
+    // for white/black bg
+    if (isWBG)
+    {
+    	glClearColor(1.0f, 1.0f, 1.0f, 1.0f);           // This Will Clear The Background Color To White
+    } else {
+    	glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
     }
 
-    // for white bg
-//    glClearColor(1.0f, 1.0f, 1.0f, 1.0f);           // This Will Clear The Background Color To White
     // display results
     glClear(GL_COLOR_BUFFER_BIT);
-
 
     // draw image from PBO
     glDisable(GL_DEPTH_TEST);
@@ -452,18 +1116,17 @@ void display()
     // for white bg
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-#if 0
-    // draw using glDrawPixels (slower)
-    glRasterPos2i(0, 0);
-    glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, ecm_pbo[m_col]);
-    glDrawPixels(width, height, GL_RGBA, GL_UNSIGNED_BYTE, 0);
-    glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
-#else
+
+    for (int i = 0; i < m_ecmtotal; i++)
+    {
+    	ecm_i ei = static_cast<ecm_i>(i);
+    	render(ei);
+    }
+
     // draw using texture
-    for (int i = 0; i < m_ecmtotal; i++) {
+    for (int i = 0; i < m_ecmtotal; i++)
+    {
     	ecm_i ei = static_cast<ecm_i>(i);
     	// copy from pbo to texture
     	glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, ecm_pbo[ei]);
@@ -473,30 +1136,135 @@ void display()
 
     	// draw textured quad
     	glEnable(GL_TEXTURE_2D);
-    	//    glColor4f(1.0f, 1.0f, 1.0f, partOf1 );
+    	glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
     	glBegin(GL_QUADS);
+#ifdef	ECV_SEPARATE
+    	glTexCoord2f(0, 0); glVertex2f(0.0, 0.1);
+    	glTexCoord2f(1, 0); glVertex2f(0.5, 0.1);
+    	glTexCoord2f(1, 1); glVertex2f(0.5, 0.9);
+    	glTexCoord2f(0, 1); glVertex2f(0.0, 0.9);
+
+    	// render collagen skeleton as background for chem vis
+//    	if (ei == m_col)
+//    	{
+    		glColor4f(1.0f, 1.0f, 1.0f, 0.3f);
+      	glTexCoord2f(0, 0); glVertex2f(0.5, 0.1);
+      	glTexCoord2f(1, 0); glVertex2f(1.0, 0.1);
+      	glTexCoord2f(1, 1); glVertex2f(1.0, 0.9);
+      	glTexCoord2f(0, 1); glVertex2f(0.5, 0.9);
+//    	}
+    	glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+#else	// ECV_SEPARATE
     	glTexCoord2f(0, 0); glVertex2f(0, 0);
     	glTexCoord2f(1, 0); glVertex2f(1, 0);
     	glTexCoord2f(1, 1); glVertex2f(1, 1);
     	glTexCoord2f(0, 1); glVertex2f(0, 1);
+#endif	// ECV_SEPARATE
+    	glEnd();
+
+
+    	glDisable(GL_TEXTURE_2D);
+    	glBindTexture(GL_TEXTURE_2D, 0);
+    }
+
+#ifndef ECV_INTERLEAVE
+
+//#pragma omp parallel num_threads(2)
+//    {
+//    	int tid = omp_get_thread_num();
+//    	int nthreads = omp_get_num_threads();
+    	for (int i = 0; i < TOTAL_CHEM; i++)
+//    	for (int i = tid; i < TOTAL_CHEM; i += 2)
+    	{
+//    		int i = 0;
+    		ChemType ci = static_cast<ChemType>(i);
+    		render_chem(ci);
+    	}
+//    }
+
+
+    // draw using texture
+    for (int ci = 0; ci < TOTAL_CHEM; ci++)
+    {
+
+#ifdef ECV_SAMPLE_CHEM
+    // set device
+    checkCudaErrors(cudaSetDevice(ci%2));	// N GPU = 2
+#endif	// ECV_SAMPLE_CHEM
+//    int ci = 0;
+
+    	// copy from pbo to texture
+    	glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, chem_pbo[ci]);
+    	glBindTexture(GL_TEXTURE_2D, chem_tex[ci]);
+    	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, 0);
+    	glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
+
+    	// draw textured quad
+    	glEnable(GL_TEXTURE_2D);
+    	glColor4f(1.0f, 1.0f, 1.0f, 0.5f);
+    	glBegin(GL_QUADS);
+#ifdef ECV_SEPARATE
+    	glTexCoord2f(0, 0); glVertex2f(0.5, 0.1);
+    	glTexCoord2f(1, 0); glVertex2f(1.0, 0.1);
+    	glTexCoord2f(1, 1); glVertex2f(1.0, 0.9);
+    	glTexCoord2f(0, 1); glVertex2f(0.5, 0.9);
+#else	// ECV_SEPARATE
+    	glTexCoord2f(0, 0); glVertex2f(0, 0);
+    	glTexCoord2f(1, 0); glVertex2f(1, 0);
+    	glTexCoord2f(1, 1); glVertex2f(1, 1);
+    	glTexCoord2f(0, 1); glVertex2f(0, 1);
+#endif	// ECV_SEPARATE
     	glEnd();
 
     	glDisable(GL_TEXTURE_2D);
     	glBindTexture(GL_TEXTURE_2D, 0);
     }
 
+#endif	// !ECV_INTERLEAVE
 
-#endif
+  	// set default GPU back to 0
+  	setDefaultGPU();
+
+
+//#ifdef ECV_SEPARATE
+    /*
+     *	Set the orthographic viewing transformation
+     */
+    double w = glutGet( GLUT_WINDOW_WIDTH );
+    double h = glutGet( GLUT_WINDOW_HEIGHT );
+
+    glMatrixMode(GL_PROJECTION);
+    glPushMatrix();
+    glLoadIdentity();
+
+    glOrtho(0,w,h,0,-1,1);
+    glMatrixMode(GL_MODELVIEW);
+    glPushMatrix();
+    glLoadIdentity();
+
+    glViewport(0,0,w,h);
+
+    /*
+     *	Draw the 2D overlay
+     */
+    Draw2D_ECV();
+
+    glMatrixMode(GL_PROJECTION);
+    glPopMatrix();
+    glMatrixMode(GL_MODELVIEW);
+    glPopMatrix();
+
+    glEnable(GL_DEPTH_TEST);
+//#else
+//    char winTitle[256];
+//    visualization::iter = world_ptr->clock;
+//    sprintf(winTitle, "ECM Proteins: Day %d (Iteration %d)", (visualization::iter/48) + 1, visualization::iter);
+//
+//    glutSetWindowTitle(winTitle);
+//#endif
 
     glutSwapBuffers();
     glutReportErrors();
-
-    char winTitle[256];
-
-    visualization::iter = world_ptr->clock;
-    sprintf(winTitle, "ECM Proteins: Day %d (Iteration %d)", (visualization::iter/48) + 1, visualization::iter);
-
-    glutSetWindowTitle(winTitle);
 
 
 #ifdef TIME_GL
@@ -530,6 +1298,7 @@ void display()
       	ecm_i ei = static_cast<ecm_i>(ein);
 
 #ifdef AVEP
+
 //      	printf("ECM %d:\n", ein);
 //      	world_ptr->printMapAVEP(ei);
 //      	printf("before update params ---------Grid: [%d, %d, %d]\n", svGridSize.width, svGridSize.height, svGridSize.depth);
@@ -604,6 +1373,20 @@ void display()
   computeFPS();
 }
 
+// display results using OpenGL (called by GLUT)
+void display()
+{
+#ifdef ECV_SAMPLE_CHEM_TEST
+	display_ecv_res_test();
+#else	// ECV_SAMPLE_CHEM_TEST
+#ifdef ECV_SINGLE_PASS
+	display_ecv_single_pass();
+#else	// ECV_SINGLE_PASS
+	display_ecv_multi_pass();
+#endif	// ECV_SINGLE_PASS
+#endif	// ECV_SAMPLE_CHEM_TEST
+}
+
 void idle()
 {
     glutPostRedisplay();
@@ -665,6 +1448,9 @@ void keyboard(unsigned char key, int x, int y)
           paused = (paused == true)? false : true;
           break;
 
+        case 'b':
+        	isWBG = (isWBG == true)? false: true;
+
         default:
             break;
     }
@@ -686,6 +1472,9 @@ void mouse(int button, int state, int x, int y)
     {
         buttonState = 0;
     }
+
+		// click one of the buttons or options
+		MouseButton(button, state , x, y);
 
     ox = x;
     oy = y;
@@ -760,6 +1549,17 @@ void cleanup()
     		glDeleteTextures(1, &ecm_tex[ei]);
     	}
     }
+
+    for (int ci = 0; ci < numchem; ci++)
+    {
+    	if (chem_pbo[ci])
+    	{
+    		cudaGraphicsUnregisterResource(cuda_pbo_resource_chem[ci]);
+    		glDeleteBuffersARB(1, &chem_pbo[ci]);
+    		glDeleteTextures(1, &chem_tex[ci]);
+    	}
+    }
+
     // cudaDeviceReset causes the driver to clean up all state. While
     // not mandatory in normal operation, it is good practice.  It is also
     // needed to ensure correct operation when the application is being
@@ -783,11 +1583,38 @@ void initGL(int *argc, char **argv)
         printf("Required OpenGL extensions missing.");
         exit(EXIT_SUCCESS);
     }
+
+    ChemOptionTable_ptr = new OptionTable(WINW - 190.0f,
+                                          275.0f,
+                                          180.0f,
+                                          250.0f,
+                                          CHEM_OPTION_ROWS,
+                                          CHEM_OPTION_COLS,
+                                          optionHeader,
+                                          optionLabel,
+                                          optionBoxArr,
+                                          visualization::surfColors);
+
+    EcmOptionTable_ptr = new OptionTable(WINW - 250.0f,
+                                          530.0f,
+                                          250.0f,
+                                          50.0f,
+                                          CELL_OPTION_ROWS,
+                                          CELL_OPTION_COLS,
+                                          optionHeaderCell,
+                                          optionLabelCell,
+                                          optionBoxArrEcm,
+                                          visualization::cellColors);
+
 }
 
 
 void initPixelBuffer()
 {
+	// set default GPU back to 0
+	setDefaultGPU();
+
+	// ECM
 	for (int ei = 0; ei < m_ecmtotal; ei++)
 	{
     if (ecm_pbo[ei])
@@ -817,6 +1644,44 @@ void initPixelBuffer()
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glBindTexture(GL_TEXTURE_2D, 0);
 	}
+
+	// CHEM
+	for (int ci = 0; ci < TOTAL_CHEM; ci++)
+	{
+#ifdef ECV_SAMPLE_CHEM
+    // set device
+    checkCudaErrors(cudaSetDevice(ci%2));	// N GPU = 2
+#endif	// ECV_SAMPLE_CHEM
+    if (chem_pbo[ci])
+    {
+        // unregister this buffer object from CUDA C
+        checkCudaErrors(cudaGraphicsUnregisterResource(cuda_pbo_resource_chem[ci]));
+
+        // delete old buffer
+        glDeleteBuffersARB(1, &chem_pbo[ci]);
+        glDeleteTextures(1, &chem_tex[ci]);
+    }
+
+    // create pixel buffer object for display
+    glGenBuffersARB(1, &chem_pbo[ci]);
+    glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, chem_pbo[ci]);
+    glBufferDataARB(GL_PIXEL_UNPACK_BUFFER_ARB, width*height*sizeof(GLubyte)*4, 0, GL_STREAM_DRAW_ARB);
+    glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
+
+    // register this buffer object with CUDA
+    checkCudaErrors(cudaGraphicsGLRegisterBuffer(&cuda_pbo_resource_chem[ci], chem_pbo[ci], cudaGraphicsMapFlagsWriteDiscard));
+
+    // create texture for display
+    glGenTextures(1, &chem_tex[ci]);
+    glBindTexture(GL_TEXTURE_2D, chem_tex[ci]);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glBindTexture(GL_TEXTURE_2D, 0);
+	}
+
+	// set default GPU back to 0
+	setDefaultGPU();
 }
 
 // Load raw data from disk
@@ -860,13 +1725,18 @@ int chooseCudaDevice(int argc, const char **argv, bool bUseOpenGL)
     return result;
 }
 
-#define RUN_ECM_VIS
+
 
 
 void visualization::start()
 {
 
 #ifdef RUN_ECM_VIS
+
+	// set dafault GPU back to 0
+	setDefaultGPU();
+
+
 //  char *ref_file = NULL;
 
 #if defined(__linux__)
@@ -910,6 +1780,8 @@ void visualization::start()
 #else
   	initCuda(h_volume[ei], volumeSize, copyParams[ei], ei);
 #endif
+
+
   }
   //free(h_volume);
 
@@ -924,6 +1796,10 @@ void visualization::start()
   gridSize = dim3(iDivUp(width, blockSize.x), iDivUp(height, blockSize.y));
 
   // This is the normal rendering path for VolumeRender
+  /* Go fullscreen.  This is as soon as possible. */
+//#ifdef ECV_SEPARATE
+  glutFullScreen();
+//#endif	// ECV_SEPARATE
   glutDisplayFunc(display);
   glutKeyboardFunc(keyboard);
   glutMouseFunc(mouse);
@@ -1013,6 +1889,7 @@ void visualization::start()
 /* A general OpenGL initialization function.  Sets all of the initial parameters. */
 void visualization::InitGL(int Width, int Height)	        // We call this right after our OpenGL window is created.
 { 
+#ifndef RUN_ECM_VIS
   // Get world dimension
   GridW = world_ptr->nx;
   GridH = world_ptr->ny;
@@ -1169,12 +2046,100 @@ void visualization::InitGL(int Width, int Height)	        // We call this right 
     fprintf(stderr, "Failed to load terrain texture for texture id: %d!\n", visualization::scar_texture);
   }
 */
-  
+#endif	// !RUN_ECM_VIS
 }
 
+#ifdef RUN_ECM_VIS
+void visualization::Draw2D_ECV()
+{
+//  ShowChemOpButton.highlighted = showChemOp;
+//  ShowEcmOpButton.highlighted  = showEcmOp;
+//
+////  bool isHM = false;
+////  for (int ic = 0; ic < CHEM_OPTION_ROWS; ic++) {
+////	  optionBoxArr[ic].highlighted	= showChem_HM  [ic];
+////	  if (showChem_HM[ic]) isHM 		= true;
+////
+//////    optionBoxArr[ic*2].highlighted	= showChem_HM  [ic];
+//////    if (showChem_HM[ic]) isHM 		= true;
+//////
+//////    optionBoxArr[ic*2 + 1].highlighted	= showChem_Surf[ic];
+////  }
+//
+//  optionBoxArrEcm[0].highlighted = showNeus;
+//  optionBoxArrEcm[1].highlighted = showMacs;
+//  optionBoxArrEcm[2].highlighted = showFibs;
+//
+//
+//	ButtonDraw(&ShowEcmOpButton);
+//	ButtonDraw(&ShowChemOpButton);
+//
+//  if (showChemOp) {
+//    visualization::ChemOptionTable_ptr->Render();
+//  }
+//
+//  if (showEcmOp) {
+//    visualization::EcmOptionTable_ptr->Render();
+//  }
+
+
+  glColor3f(1,1,1);
+
+  // Damage stats
+  int initialDam = visualization::world_ptr->getInitialDam();
+  int currentDam = visualization::world_ptr->countDamage();
+  char str_idam[50];
+  char str_cdam[50];
+  char str_pheal[50];
+  sprintf(str_idam,  "Initial Damage (patches): %d", initialDam);
+  sprintf(str_cdam,  "Current Damage (patches): %d", currentDam);
+  sprintf(str_pheal, "Percent Healed (%%):       %3.1f",
+	((float) (initialDam - currentDam) / (float) initialDam) * 100.0f);
+  Font(GLUT_BITMAP_8_BY_13, str_idam,  15, 20);
+  Font(GLUT_BITMAP_8_BY_13, str_cdam,  15, 40);
+  Font(GLUT_BITMAP_8_BY_13, str_pheal, 15, 60);
+
+  // Time info
+  visualization::iter = world_ptr->clock;
+  char str_tc[15];
+  char str_dy[15];
+  char str_hr[15];
+  char str_mn[15];
+  char str_fps[15];
+  char str_afps[15];
+  int total_mn = visualization::iter*30;
+  int total_hr  = total_mn / 60;
+  sprintf(str_tc, "%d", visualization::iter);
+  sprintf(str_dy, "%d", total_hr/24);
+  sprintf(str_hr, "%d", total_hr%24);
+  sprintf(str_mn, "%d", total_mn%60);
+  sprintf(str_afps, "%3.1f", fpsAvg);
+  sprintf(str_fps, "%3.1f", fpsCur);
+
+  glColor3f(0.7,0.7,0.7);
+  Font(GLUT_BITMAP_HELVETICA_12,"Avg Frame rate:	", WINW - 195, 80);
+  Font(GLUT_BITMAP_HELVETICA_12,"Frame rate:	", WINW - 170, 60);
+  Font(GLUT_BITMAP_HELVETICA_12,"elapsed time:       d       h      m", WINW - 190, 40);
+  Font(GLUT_BITMAP_HELVETICA_12,"tick:  ",   WINW - 140, 20);
+//  glColor3f(1,1,1);
+  glColor3f(0.7,0.7,0.7);
+  Font(GLUT_BITMAP_HELVETICA_12,str_afps,    WINW - 95,  80);
+  Font(GLUT_BITMAP_HELVETICA_12,str_fps,     WINW - 95,  60);
+
+  Font(GLUT_BITMAP_HELVETICA_12,str_dy,      WINW - 105,  40);
+  Font(GLUT_BITMAP_HELVETICA_12,str_hr,      WINW - 73,  40);
+  Font(GLUT_BITMAP_HELVETICA_12,str_mn,      WINW - 42,  40);
+
+  Font(GLUT_BITMAP_HELVETICA_12,str_tc,      WINW - 100,  20);
+}
+#endif 	// RUN_ECM_VIS
 
 void visualization::Draw2D()
 {
+
+#ifdef 	RUN_ECM_VIS
+	Draw2D_ECV();
+#else	// RUN_ECM_VIS
 
   ShowCellsButton.highlighted = showCells;
  /* 
@@ -1324,6 +2289,7 @@ void visualization::Draw2D()
   Font(GLUT_BITMAP_HELVETICA_12,str_mn,      WINW - 42,  40);
   
   Font(GLUT_BITMAP_HELVETICA_12,str_tc,      WINW - 100,  20);
+#endif	// RUN_ECM_VIS
 }
 
 void getColor()

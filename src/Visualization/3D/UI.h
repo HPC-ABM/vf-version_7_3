@@ -102,6 +102,7 @@ extern GLfloat cellSize;
 extern GLfloat pcellSize;       // previous cell size
 
 extern bool paused;
+extern bool isWBG;
 
 // Chem global variables
 //extern bool showTNF_HM   ;
@@ -116,6 +117,7 @@ extern bool showMacs        ;
 extern bool showFibs        ;
 extern bool showECMs        ;
 extern bool showChemOp      ;
+extern bool showEcmOp      ;
 
 extern bool showChemCharts  ;
 extern bool showCellCharts  ;
@@ -137,6 +139,15 @@ extern int window;
 
 extern Button ShowCellsButton;
 extern Button ShowECMButton;
+
+#ifdef RUN_ECM_VIS
+
+extern Button ShowChemOpButton;
+extern Button ShowEcmOpButton;
+extern Button optionBoxArr[CHEM_OPTION_COLS * CHEM_OPTION_ROWS];
+extern Button optionBoxArrEcm[CELL_OPTION_COLS * CELL_OPTION_ROWS];
+
+#else	// RUN_ECM_VIS
 
 
 #ifdef USE_MOUSE_ONLY
@@ -173,6 +184,7 @@ extern Button optionBoxArr[CHEM_OPTION_COLS * CHEM_OPTION_ROWS];
 extern Button optionBoxArrCell[CELL_OPTION_COLS * CELL_OPTION_ROWS];
 
 #endif  // USE_MOUSE_ONLY
+#endif	// RUN_ECM_VIS
 
 void ButtonDraw(Button *b);
 

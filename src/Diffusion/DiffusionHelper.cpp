@@ -469,6 +469,14 @@ void diffusion_helper::allocChemBuffers(c_ctx *chem_cctx, WHChemical *WHWorldChe
 
     int fftsizeb  = cfftD * cfftH * (cfftW / 2 + 1) * sizeof(fComplex);
     int datasizeb = nx*ny*nz * sizeof(float);
+#ifdef	ECV_SAMPLE_CHEM
+#ifndef ECV_SAMPLE_CHEM_TEST
+    size_t samplex = nx/ECV_SAMPLE_STRIDE;
+    size_t sampley = ny/ECV_SAMPLE_STRIDE;
+    size_t samplez = nz/ECV_SAMPLE_STRIDE;
+    int sampsizeb = samplex*sampley*samplez * sizeof(float);
+#endif	// !ECV_SAMPLE_CHEM_TEST
+#endif	// ECV_SAMPLE_CHEM
 
     /********************************************
      * Diffusion Buffer Allocations             *
@@ -482,11 +490,11 @@ void diffusion_helper::allocChemBuffers(c_ctx *chem_cctx, WHChemical *WHWorldChe
      *
      * 3D:
      *      d_data              -- Point to one buffer per device
-     *      d_kernelspectrum_h   -- Point to one buffer per device
+     *      d_kernelspectrum_h  -- Point to one buffer per device
      *
      * 2D:
      *      d_data              -- Point to one buffer per chemical type
-     *      d_kernelspectrum_h   -- Point to one buffer per chemical type
+     *      d_kernelspectrum_h  -- Point to one buffer per chemical type
      *
      */
 
@@ -523,7 +531,6 @@ void diffusion_helper::allocChemBuffers(c_ctx *chem_cctx, WHChemical *WHWorldChe
         chem_cctx->h_ibuffs[ic] = WHWorldChem->getPchemPtr(ic);
 #endif  // OPT_CHEM
     }
-
 
 #ifdef MODEL_3D
 
@@ -592,7 +599,7 @@ void diffusion_helper::allocChemBuffers(c_ctx *chem_cctx, WHChemical *WHWorldChe
 
     for (int ic = 0; ic < N_CHEM; ic++){
         // DEVICE
-        checkCudaErrors(cudaMalloc((void **)&(chem_cctx->d_data[ic]),           datasizeb));
+        checkCudaErrors(cudaMalloc((void **)&(chem_cctx->d_data[ic]),             datasizeb));
         checkCudaErrors(cudaMalloc((void **)&(chem_cctx->d_kernelspectrum_h[ic]), fftsizeb));
 
         // HOST
@@ -605,6 +612,38 @@ void diffusion_helper::allocChemBuffers(c_ctx *chem_cctx, WHChemical *WHWorldChe
     }
 
 #endif	//MODEL_3D
+
+#ifdef ECV_SAMPLE_CHEM
+#ifdef 	ECV_SAMPLE_CHEM_TEST
+    // For chem visualization with ECM
+    // Allocate buffers to hold sampled 2 chems on each GPU for resolution comparison
+    cudaExtent sampleSize_hgh = make_cudaExtent(
+    		nx/ECV_SAMPLE_STRIDE_HGH,
+    		ny/ECV_SAMPLE_STRIDE_HGH,
+    		nz/ECV_SAMPLE_STRIDE_HGH);
+    // High-resolution0
+    checkCudaErrors(cudaSetDevice(0));
+    initCudaChemSample(sampleSize_hgh, 0);
+
+    // Low resolution
+    cudaExtent sampleSize_low = make_cudaExtent(
+    		nx/ECV_SAMPLE_STRIDE_LOW,
+    		ny/ECV_SAMPLE_STRIDE_LOW,
+    		nz/ECV_SAMPLE_STRIDE_LOW);
+    initCudaChemSample(sampleSize_low, 2);
+#else	// ECV_SAMPLE_CHEM_TEST
+    // For chem visualization with ECM
+    // Allocate buffers to hold sampled chems on each GPU
+    cudaExtent sampleSize = make_cudaExtent(samplex, sampley, samplez);
+    for (int ic = 0; ic < N_CHEM; ic++){
+      int ig = gpu_id[ic];
+      checkCudaErrors(cudaSetDevice(chem_cctx->dev_id[ic]));//ig));
+      initCudaChemSample(sampleSize, ic);
+    }
+#endif	// ECV_SAMPLE_CHEM_TEST
+#endif	// ECV_SAMPLE_CHEM
+
+
 }
 
 

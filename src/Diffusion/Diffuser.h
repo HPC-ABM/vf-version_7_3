@@ -20,6 +20,7 @@
 
 using namespace std;
 
+
 class Diffuser {
 public:
     /*
@@ -64,6 +65,7 @@ private:
     c_ctx *chem_cctx;
     c_ctx *kernel_cctx;
     WHChemical *WHWorldChem;
+    int iter;
 
 };
 

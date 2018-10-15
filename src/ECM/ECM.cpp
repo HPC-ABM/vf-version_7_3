@@ -757,7 +757,7 @@ float ECM::getnHA()
 	return this->totalHA[read_t];
 }
 
-int ECM::getnfHA()
+float ECM::getnfHA()
 {
 	return this->fHA[read_t];
 }
