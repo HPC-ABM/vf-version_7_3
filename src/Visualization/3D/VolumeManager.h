@@ -8,8 +8,10 @@
 #ifndef Volume_Manager_h
 #define Volume_Manager_h
 
-#include "common_vis.h"
-#include "draw_util.h"
+//#include "common_vis.h"
+//#include "draw_util.h"
+#include "../../common.h"
+#include "../../enums.h"
 
 // CUDA Runtime, Interop, and includes
 #include <cuda_runtime.h>
@@ -72,13 +74,29 @@ void bufferECMmapAVEP(
 #endif	// AVEP_INC
 #endif	// AVEP
 
+
+
 extern "C" void freeCudaBuffers();
 extern "C" void render_kernel(dim3 gridSize, dim3 blockSize, uint *d_output, uint imageW, uint imageH,
                               float density, float brightness, float transferOffset, float transferScale);
 extern "C" void render_kernel_dim(dim3 gridSize, dim3 blockSize, uint *d_output, uint nx, uint ny, uint nz,
 															    uint imageW, uint imageH,
                                   float density, float brightness, float transferOffset, float transferScale,
-                                  ecm_i ecmType);
+                                  int ecmChemType,
+                                  bool isChem);
+extern "C" void render_sp_kernel_dim(dim3 gridSize, dim3 blockSize, uint *d_output, uint nx, uint ny, uint nz,
+																	uint imageW, uint imageH,
+																	float density, float brightness, float transferOffset, float transferScale,
+																	int gpu_id);
+#ifdef ECV_SAMPLE_CHEM_TEST
+extern "C"
+void render_test_kernel_dim(dim3 gridSize, dim3 blockSize, uint *d_output, uint nx, uint ny, uint nz,
+																	uint imageW, uint imageH,
+																	float density, float brightness, float transferOffset, float transferScale,
+																	int chemType, bool isHigh);
+#endif	// ECV_SAMPLE_CHEM_TEST
+
+
 extern "C" void copyInvViewMatrix(float *invViewMatrix, size_t sizeofMatrix);
 
 

@@ -19,6 +19,10 @@
 #include "../common.h"
 #include "convolutionFFT_common.h"
 
+#ifdef ECV_SAMPLE_CHEM
+#include "../Visualization/3D/ChemBufferManager.h"
+#endif	// ECV_SAMPLE_CHEM
+
 #include "../FieldVariable/Usr_FieldVariables/WHChemical.h"
 
 class WHChemical;

@@ -373,6 +373,7 @@ void Fibroblast::afib_produce_cytokines(float neighborHAs) {
   float patchIL1  = this->agentWorldPtr->WHWorldChem->pIL1beta[in];
   float patchIL6  = this->agentWorldPtr->WHWorldChem->pIL6[in];
   float patchIL10 = this->agentWorldPtr->WHWorldChem->pIL10[in];
+  float patchfHA  = Agent::agentECMPtr[in].getnfHA();
 
   // Regulator coefficients and offsets
 #ifndef CALIBRATION
@@ -401,6 +402,12 @@ void Fibroblast::afib_produce_cytokines(float neighborHAs) {
   float il8_cIL10 = 10000.0f;
   float il8_ofst  = Agent::baseline[IL8];//0.0f;
 
+	float il1_cTGF  = 0.0000000f;	// up
+	float il1_cTNF  = 0.00000f;	// up
+	float il1_cfHA  = 0.0000000f; // up
+	float il1_cIL10 = 0.0f;//1000000.0f;	// down
+	float il1_ofst  = Agent::baseline[IL1beta];
+
 #else
   // TODO: Reorder parameters
   float tgf_cTNF  = Fibroblast::cytokineSynthesis[0];
@@ -428,6 +435,11 @@ void Fibroblast::afib_produce_cytokines(float neighborHAs) {
   float il8_cIL10 = Fibroblast::cytokineSynthesis[13];
   float il8_ofst  = Agent::baseline[IL8];
 
+	float il1_cTGF  = Fibroblast::cytokineSynthesis[14];	// up
+	float il1_cTNF  = Fibroblast::cytokineSynthesis[15];	// up
+	float il1_cfHA  = Fibroblast::cytokineSynthesis[16];  // up
+	float il1_cIL10 = Fibroblast::cytokineSynthesis[17];	// down
+	float il1_ofst  = Agent::baseline[IL1beta];
 #endif
 
   REGULATORS_T tgf_coefs{tgf_cTNF, tgf_cIL10};
@@ -435,6 +447,9 @@ void Fibroblast::afib_produce_cytokines(float neighborHAs) {
   REGULATORS_T tnf_coefs{tnf_cTGF, tnf_cIL10, tnf_cnHA};
   REGULATORS_T il6_coefs{il6_cIL6, il6_cTGF,  il6_cTNF, il6_cIL1, il6_cnHA, il6_cIL10};
   REGULATORS_T il8_coefs{il8_cTGF, il8_cnHA,  il8_cIL10};
+
+  REGULATORS_T il1_ucoefs{il1_cTGF, il1_cTNF, il1_cfHA};
+  REGULATORS_T il1_dcoefs{il1_cIL10};
 
   // Up- and down-regulators for each cytokine produced by myofibroblasts
   REGULATORS_T tgf_uregs{patchTNF};
@@ -452,13 +467,17 @@ void Fibroblast::afib_produce_cytokines(float neighborHAs) {
   REGULATORS_T il8_uregs{patchTGF};
   REGULATORS_T il8_dregs{patchIL10, neighborHAs};
 
+  REGULATORS_T il1_uregs{patchTGF, patchTNF, patchfHA};
+  REGULATORS_T il1_dregs{patchIL10};
+
 
   // Call cytokine production functions
-  float TGFinc = produce_tgf(tgf_uregs, tgf_dregs, tgf_coefs, tgf_ofst);
-  float FGFinc = produce_fgf(fgf_uregs, fgf_dregs, fgf_coefs, fgf_ofst);
-  float TNFinc = produce_tnf(tnf_uregs, tnf_dregs, tnf_coefs, tnf_ofst);
-  float IL6inc = produce_il6(il6_uregs, il6_dregs, il6_coefs, il6_ofst);
-  float IL8inc = produce_il8(il8_uregs, il8_dregs, il8_coefs, il8_ofst);
+  float TGFinc = produce_tgf(tgf_uregs, tgf_dregs,  tgf_coefs, tgf_ofst);
+  float FGFinc = produce_fgf(fgf_uregs, fgf_dregs,  fgf_coefs, fgf_ofst);
+  float TNFinc = produce_tnf(tnf_uregs, tnf_dregs,  tnf_coefs, tnf_ofst);
+  float IL6inc = produce_il6(il6_uregs, il6_dregs,  il6_coefs, il6_ofst);
+  float IL8inc = produce_il8(il8_uregs, il8_dregs,  il8_coefs, il8_ofst);
+//	float IL1inc = produce_il1(il1_uregs, il1_dregs, il1_ucoefs, il1_dcoefs, il1_ofst);
 
 
 #ifdef PRINT_SECRETION
@@ -470,6 +489,7 @@ void Fibroblast::afib_produce_cytokines(float neighborHAs) {
   printCytRelease(3, TNF, x, y, z, TNFinc);
   printCytRelease(3, IL6, x, y, z, IL6inc);
   printCytRelease(3, IL8, x, y, z, IL8inc);
+  printCytRelease(3, IL1beta, x, y, z, IL1inc);
 #endif  // PRINT_SECRETION
 
 }
@@ -852,7 +872,9 @@ float Fibroblast::make_elas_monomers(
 
   Agent::agentECMPtr[target].addMonomerEla(newMonomers);
   // debug vis
+#ifdef HUMAN_VF
   Agent::agentWorldPtr->incECM(target, m_ela, 1.0f);
+#endif
   return newMonomers;
 }
 

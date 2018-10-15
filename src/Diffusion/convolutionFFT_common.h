@@ -40,7 +40,8 @@ inline int iAlignUp(int a, int b)
     return (a % b != 0) ? (a - a % b + b) : a;
 }
 
-void padData2D(
+
+extern "C" void padData2D(
         pad_t pt,
         float *d_PaddedData,
         float *d_Data,
@@ -340,6 +341,8 @@ typedef struct CCTX             // convolution context
 
     fComplex *h_kernelspectrum[N_CHEM];
     fComplex *d_kernelspectrum_h[N_CHEM];
+
+
 } c_ctx;
 
 
@@ -416,7 +419,9 @@ extern "C" bool fftDiffuse3D(
         cufftHandle fftPlanInv,
         c_ctx       cctx,
         int         epiBoundary,
-        float       baseChem);
+        float       baseChem,
+        int         chemIndex,
+        int 				iter = 0);
 
 
 #endif  // MODEL_3D

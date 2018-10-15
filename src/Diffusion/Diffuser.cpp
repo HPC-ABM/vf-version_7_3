@@ -21,6 +21,7 @@ Diffuser::Diffuser()
     this->chem_cctx     = NULL;
     this->kernel_cctx   = NULL;
     this->WHWorldChem   = WHWorldChem;
+    this->iter = 0;
 }
 
 Diffuser::Diffuser(int nBaseChem, c_ctx *cc, c_ctx *kc, WHChemical *WHWorldChem)
@@ -29,6 +30,7 @@ Diffuser::Diffuser(int nBaseChem, c_ctx *cc, c_ctx *kc, WHChemical *WHWorldChem)
     this->chem_cctx     = cc;
     this->kernel_cctx   = kc;
     this->WHWorldChem   = WHWorldChem;
+    this->iter = 0;
 
 }
 
@@ -307,7 +309,7 @@ void Diffuser::diffuseChemGPU(int rightWallIndex){
         
 #ifdef MODEL_3D
         int ig = this->chem_cctx->gpu_id[ic];
-	int devID = this->chem_cctx->dev_id[ic];
+	      int devID = this->chem_cctx->dev_id[ic];
         if (ig != tid) continue;
 
         checkCudaErrors(cudaSetDevice(devID));//ig));
@@ -360,7 +362,9 @@ void Diffuser::diffuseChemGPU(int rightWallIndex){
                 fftPlanInv[ig],
                 *(this->chem_cctx),
                 rightWallIndex,
-                this->WHWorldChem->pbaseline[ic]);
+                this->WHWorldChem->pbaseline[ic],
+                ic,
+                this->iter);
 
 #else   // MODEL_3D
 
@@ -462,6 +466,7 @@ void Diffuser::diffuseChemGPU(int rightWallIndex){
         sdkDeleteTimer(&hTimer[ig]);
 #endif
     cerr << "finished diffusion for all chems" << endl;
+    this->iter++;
 }
 #endif	// OPT_PINNED_MEM
 

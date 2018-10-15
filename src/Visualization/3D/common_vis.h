@@ -45,6 +45,11 @@
 #include "../../common.h"
 #include "draw_util.h"
 
+//// Externs for 3D ECM/Chem Visualization
+//extern __device__ surface<void, cudaSurfaceType3D> srfChem0;
+//extern __device__ texture<VolumeType, 3, cudaReadModeElementType> texChem0;
+
+
 /* ASCII code for the escape key. */
 #define ESCAPE 27
 

@@ -36,7 +36,7 @@ typedef std::vector<float> REGULATORS_T;
  * SENSITIVITY ANALYSIS AND  CALIBRATION                                     *
  *****************************************************************************/
 // Modify normal values of parameters for S.A. or calibration purposes
-#define CALIBRATION
+//#define CALIBRATION
 // Used to print new values of parameters during S.A. or calibration
 //#define PRINT_PARAMETER_VALUES
 
@@ -130,17 +130,29 @@ typedef std::vector<float> REGULATORS_T;
 // Output ECM volume map as raw file
 //#define WRITE_RAW_ECM
 // Enable Biomarker Output
-#define BIOMARKER_OUTPUT
+//#define BIOMARKER_OUTPUT
 // Enable Paraview rendering
 //#define PARAVIEW_RENDERING
 // Enable In-Situ Visualization
-//#define VISUALIZATION
+#define VISUALIZATION
 // Enable overlap visualization and computation
 //#define OVERLAP_VIS
+// Enable 3D ECM protein visualization
+#define RUN_ECM_VIS
+// Enable new version of chemical sampling for visualization (with ECM)
+#define ECV_SAMPLE_CHEM
+// Enable resolution comparison
+//#define ECV_SAMPLE_CHEM_TEST
+// Enable single pass ray-casting for chemical data on each GPU
+#define ECV_SINGLE_PASS
+// Enable interleaving chemical and collagen vis
+//#define ECV_INTERLEAVE
+// Enable separate ECM and chem visualization areas on screen
+//#define ECV_SEPARATE
 // Enable interactivity optimization
-//#define INTERACTIVE_VIS
+#define INTERACTIVE_VIS
 // Enable Activity-Aware Visualization of ECM Proteins
-//#define AVEP
+#define AVEP
 // Enable Activity-Aware Visualization of ECM Proteins with incremental changes
 //#define AVEP_INC
 // Enable timing functions for GL rendering
@@ -150,9 +162,9 @@ typedef std::vector<float> REGULATORS_T;
 // Initialize Vocal Fold Morphology
 #define MODEL_VOCALFOLD
 // Human size
-//#define HUMAN_VF
+#define HUMAN_VF
 // Rat size
-#define RAT_VF
+//#define RAT_VF
 // Use PEVOC scale parameters 	(Obsolete?)
 //#define PEVOC_SCALE
 // Use PDE based chemical diffusion
@@ -355,6 +367,18 @@ typedef std::vector<float> REGULATORS_T;
 #endif // RAT_VF
 #endif
 
+#ifdef ECV_SAMPLE_CHEM
+
+#define ECV_SAMPLE_STRIDE_LOW	8
+#define ECV_SAMPLE_STRIDE_HGH 3
+
+
+#ifdef RAT_VF
+#define ECV_SAMPLE_STRIDE		2
+#else		// RAT_VF
+#define ECV_SAMPLE_STRIDE		3
+#endif	// RAT_VF
+#endif	// ECV_SAMPLE_CHEM
 
 /*****************************************************************************
  * MACRO DEFINITIONS                                                         *

@@ -17,7 +17,7 @@ float pcamX=0.0f, pcamY=0.0f, pcamZ=0.0f;
 GLfloat cellSize = 0.001f;//0.25f;//2.0f;
 GLfloat pcellSize = 0.001f;//0.25f;//2.0f;       // previous cell size
 
-bool paused = false;// true
+bool paused = true;  // false;
 
 // Chem global variables
 bool showChem_HM[8]   = {true, false, false, false, false, false, false, false};
@@ -31,11 +31,13 @@ bool showChemCharts = true;
 bool showCellCharts = false;
 
 bool showChemOp     = false;
+bool showEcmOp      = false;
 
 bool lowerECMplane  = false;
 bool raiseECMplane  = false;
 
 bool zoomedWound    = false;
+bool isWBG          = false;
 
 #ifdef USE_MOUSE_ONLY
 
@@ -123,6 +125,12 @@ void ChemOpButtonCallBack() {
 }
 
 #endif  // USE_MOUSE_ONLY
+
+void EcmOpButtonCallBack() {
+  showEcmOp = !showEcmOp;
+	bool temp = showEcmOp;
+	showEcmOp = !temp;
+}
 
 
 /*----------------------------------------------------------------------------------------
@@ -371,6 +379,25 @@ int window = -1;
  *	member is a pointer to the above function.
  */
 
+#ifdef RUN_ECM_VIS
+Button ShowEcmOpButton    = {WINW - 100,  60, 45,25, 0,0, "ECMs", EcmOpButtonCallBack };
+
+Button ShowChemOpButton  = {WINW - 100,  90, 95,25, 0,0, "Chem Options", ChemOpButtonCallBack };
+
+Button optionBoxArr[CHEM_OPTION_COLS * CHEM_OPTION_ROWS] = {{-1, -1, -1, -1, 0, 0, "", TNF_HMButtonCallBack},
+  {-1, -1, -1, -1, 0, 0, "", TGF_HMButtonCallBack},
+  {-1, -1, -1, -1, 0, 0, "", FGF_HMButtonCallBack},
+  {-1, -1, -1, -1, 0, 0, "", MMP8_HMButtonCallBack},
+  {-1, -1, -1, -1, 0, 0, "", IL1beta_HMButtonCallBack},
+  {-1, -1, -1, -1, 0, 0, "", IL6_HMButtonCallBack},
+  {-1, -1, -1, -1, 0, 0, "", IL8_HMButtonCallBack},
+  {-1, -1, -1, -1, 0, 0, "", IL10_HMButtonCallBack}};
+
+Button optionBoxArrEcm[CELL_OPTION_COLS * CELL_OPTION_ROWS] = {{-1, -1, -1, -1, 0, 0, "", NeuButtonCallBack},
+  {-1, -1, -1, -1, 0, 0, "", MacButtonCallBack},
+  {-1, -1, -1, -1, 0, 0, "", FibButtonCallBack}};
+
+#else	// RUN_ECM_VIS
 
 
 #ifdef USE_MOUSE_ONLY
@@ -430,7 +457,7 @@ Button optionBoxArrCell[CELL_OPTION_COLS * CELL_OPTION_ROWS] = {{-1, -1, -1, -1,
   {-1, -1, -1, -1, 0, 0, "", FibButtonCallBack}};
 
 #endif // USE_MOUSE_ONLY
-
+#endif	// RUN_ECM_VIS
 /*----------------------------------------------------------------------------------------
  *	\brief	This function draws the specified button.
  *	\param	b	-	a pointer to the button to draw.
@@ -636,6 +663,22 @@ void MouseButton(int button,int state,int x, int y)
  
   printf("Mouse clicked (%d, %d)\n", x, y);
  
+#ifdef RUN_ECM_VIS
+  ButtonPress(&ShowChemOpButton, x, y);
+  ButtonPress(&ShowEcmOpButton, x, y);
+
+  if (showChemOp) {
+    for (int i = 0; i < CHEM_OPTION_COLS * CHEM_OPTION_ROWS; i++) {
+      ButtonPress(&optionBoxArr[i], x, y);
+    }
+  }
+
+  if (showEcmOp) {
+  	for (int i = 0; i < CELL_OPTION_COLS * CELL_OPTION_ROWS; i++) {
+  		ButtonPress(&optionBoxArrEcm[i], x, y);
+  	}
+  }
+#else	// RUN_ECM_VIS
   /*
    *	has the button been pressed or released?
    */
@@ -758,6 +801,7 @@ Font3D(GLUT_BITMAP_HELVETICA_18, stry, 500+20, 500, PLANE_DEPTH + 100);
         break;
     }
   }
+#endif	// RUN_ECM_VIS
   
   /*
    *	Force a redraw of the screen. If we later want interactions with the mouse

@@ -243,27 +243,35 @@ void Neutrophil::aneu_produce_cytokines() {
 
 		float patchTNF  = this->agentWorldPtr->WHWorldChem->pTNF[in];
 		float patchTGF  = this->agentWorldPtr->WHWorldChem->pTGF[in];
+		float patchIL8  = this->agentWorldPtr->WHWorldChem->pIL8[in];
 		float patchIL10 = this->agentWorldPtr->WHWorldChem->pIL10[in];
 
 		/* Activated neutrophils synthesize new cytokines in quantities dependent on
 		 * the vocal treatment type. TODO(Kim): INSERT REFS? */
 
-		float TNFinc  = 0.0;
-		float MMP8inc = 0.0;
+		float TNFinc  = 0.0f;
+		float MMP8inc = 0.0f;
+		float IL1inc  = 0.0f;
 
-		float tnf_cNum ;
-		float tnf_cDen ;
-		float tnf_cTGF ;
-		float tnf_cIL10;
-		float tnf_ofst ;
+		float tnf_cNum  = 0.0f;
+		float tnf_cDen  = 0.0f;
+		float tnf_cTGF  = 0.0f;
+		float tnf_cIL10 = 0.0f;
+		float tnf_ofst  = 0.0f;
 
-		float mmp8_cNum;
-		float mmp8_cTNF;
-		float mmp8_cDen;
-		float mmp8_cTGF;
-		float mmp8_ofst;
+		float il1_cTNF  = 0.0f;	// up
+		float il1_cIL8  = 0.0f;	// up
+		float il1_cIL10 = 0.0f;	// down
+		float il1_ofst  = 0.0f;
+
+		float mmp8_cNum = 0.0f;
+		float mmp8_cTNF = 0.0f;
+		float mmp8_cDen = 0.0f;
+		float mmp8_cTGF = 0.0f;
+		float mmp8_ofst = 0.0f;
 
 		tnf_ofst  = Agent::baseline[TNF];//0.0f;
+		il1_ofst  = Agent::baseline[IL1beta];
 		mmp8_ofst = Agent::baseline[MMP8];//0.0f;
 
 		// Setting up, regulators, coefficients and offsets
@@ -302,6 +310,10 @@ void Neutrophil::aneu_produce_cytokines() {
 			mmp8_cTGF  = 1.0f;
 		}
 
+		il1_cTNF  = 0.1f;
+		il1_cIL8  = 0.001f;
+		il1_cIL10 = 10000.0f;
+
 		REGULATORS_T tnf_ucoefs{tnf_cNum};
 		REGULATORS_T tnf_dcoefs{tnf_cDen, tnf_cTGF, tnf_cIL10};
 		REGULATORS_T tnf_uregs{1.0f};
@@ -338,6 +350,9 @@ void Neutrophil::aneu_produce_cytokines() {
 			mmp8_cTGF  = Neutrophil::cytokineSynthesis[11];
 		}
 
+		il1_cTNF  = Neutrophil::cytokineSynthesis[12];
+		il1_cIL8  = Neutrophil::cytokineSynthesis[13];
+		il1_cIL10 = Neutrophil::cytokineSynthesis[14];
 
 		REGULATORS_T tnf_ucoefs{tnf_cNum};
 		REGULATORS_T tnf_dcoefs{tnf_cTGF, tnf_cIL10};
@@ -351,16 +366,23 @@ void Neutrophil::aneu_produce_cytokines() {
 
 #endif
 
+		REGULATORS_T il1_ucoefs{il1_cTNF,il1_cIL8 };
+		REGULATORS_T il1_dcoefs{il1_cIL10};
+		REGULATORS_T il1_uregs{patchTNF, patchIL8};
+		REGULATORS_T il1_dregs{patchIL10};
+
 		// Call cytokine production functions
 		TNFinc  = produce_tnf ( tnf_uregs,  tnf_dregs,  tnf_ucoefs,  tnf_dcoefs,  tnf_ofst);
 		MMP8inc = produce_mmp8(mmp8_uregs, mmp8_dregs, mmp8_ucoefs, mmp8_dcoefs, mmp8_ofst);
+//		IL1inc  = produce_il1 ( il1_uregs,  il1_dregs,  il1_ucoefs,  il1_dcoefs,  il1_ofst);
 
 #ifdef PRINT_SECRETION
 		int x = this->ix[read_t];
 		int y = this->iy[read_t];
 		int z = this->iz[read_t];
-		printCytRelease(3, TNF,  x, y, z, TNFinc);
-		printCytRelease(3, MMP8, x, y, z, MMP8inc);
+		printCytRelease(3, TNF,     x, y, z, TNFinc);
+		printCytRelease(3, MMP8, 	  x, y, z, MMP8inc);
+		printCytRelease(3, IL1beta, x, y, z, IL1inc);
 #endif  // PRINT_SECRETION
 
 	}

@@ -22,6 +22,10 @@
 #include "convolutionFFT_common.h"
 //#include "convolutionFFT2D.cu"
 
+#ifdef ECV_SAMPLE_CHEM
+#include "../Visualization/3D/ChemBufferManager.h"
+#endif	// ECV_SAMPLE_CHEM
+
 using namespace std;
 
 #ifdef GPU_DIFFUSE      // (*)
@@ -1622,7 +1626,9 @@ bool fftDiffuse3D(
 		cufftHandle  fftPlanInv,
 		c_ctx	  		 cctx,
 		int          epiBoundary,
-		float        baseChem)
+		float        baseChem,
+		int					 chemIndex,
+		int					 iter)
 {
 
 	int devID;
@@ -1645,21 +1651,21 @@ bool fftDiffuse3D(
 #ifdef PRINT_KERNEL
 	printf("Testing GPU chemical diffusion computation\n");
 #endif	// PRINT_KERNEL
-	const int	 kernelD = cctx.KD;
+	const int	   kernelD = cctx.KD;
 	const int    kernelH = cctx.KH;
 	const int    kernelW = cctx.KW;
 
-	const int	 kernelZ = cctx.KZ;
+	const int	   kernelZ = cctx.KZ;
 	const int    kernelY = cctx.KY;
 	const int    kernelX = cctx.KX;
 
 	const int	   dataD = cctx.DD;
-	const int      dataH = cctx.DH;
-	const int      dataW = cctx.DW;
+	const int    dataH = cctx.DH;
+	const int    dataW = cctx.DW;
 
-	const int		fftD = cctx.FFTD;
-	const int       fftH = cctx.FFTH;
-	const int       fftW = cctx.FFTW;
+	const int		 fftD = cctx.FFTD;
+	const int    fftH = cctx.FFTH;
+	const int    fftW = cctx.FFTW;
 
 	int ksize	= kernelD	* kernelH	* kernelW;
 	int dsize	= dataD		* dataH		* dataW;
@@ -1723,6 +1729,25 @@ bool fftDiffuse3D(
 
 	firstTransferCompleted = true;
 	checkCudaErrors(cudaMemset(d_PaddedData,    0,	fsize_b));
+
+//	/********************************************
+//	 * Sample chem for visualization            *
+//	 ********************************************/
+//#ifdef ECV_SAMPLE_CHEM
+//
+//	if(chemIndex == 1)
+//	{
+//		printf("executing sampleChem() ...\n");
+//		sampleChem(
+//				d_Data,
+//				dataD,
+//				dataH,
+//				dataW
+//		);
+//	}
+//
+//	checkCudaErrors(cudaDeviceSynchronize());
+//#endif
 
 	/********************************************
 	 * Pad data                                 *
@@ -1846,6 +1871,36 @@ bool fftDiffuse3D(
 
 	sdkStopTimer(&hTimer);
 	double unpadTime = sdkGetTimerValue(&hTimer);
+
+	/********************************************
+	 * Sample chem for visualization            *
+	 ********************************************/
+#ifdef ECV_SAMPLE_CHEM
+#ifdef ECV_SAMPLE_CHEM_TEST
+		if(chemIndex == 0)
+		{
+			printf("executing sampleChem() %d ...\n", chemIndex);
+			sampleChem(
+					d_Data,
+					dataD,
+					dataH,
+					dataW,
+					chemIndex
+			);
+		}
+#else	// ECV_SAMPLE_CHEM_TEST
+//			printf("executing sampleChem() %d iter %d...\n", chemIndex, iter);
+			sampleChem(
+					d_Data,
+					dataD,
+					dataH,
+					dataW,
+					chemIndex
+			);
+#endif	// ECV_SAMPLE_CHEM_TEST
+
+	checkCudaErrors(cudaDeviceSynchronize());
+#endif
 
 	/********************************************
 	 * Execution Time Display                   *

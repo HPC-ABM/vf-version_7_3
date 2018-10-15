@@ -21,6 +21,7 @@
 #include "OptionTable.h"
 #include "WorldVisualizer.h"
 #include "VolumeManager.h"
+#include "ChemBufferManager.h"
 
 #include "../../World/Usr_World/woundHealingWorld.h"
 
@@ -48,6 +49,7 @@ namespace visualization {
 //  extern GridSurfaceManager  *ChemSurfManager_ptr;
   extern OptionTable         *ChemOptionTable_ptr;
   extern OptionTable         *CellOptionTable_ptr;
+  extern OptionTable         *EcmOptionTable_ptr;
   extern VolumeManager       *ECMvolumeManager_Ptr;
   
 //  extern GLuint  tissue_texture[3];	/* Storage for 3 textures. */
@@ -109,8 +111,13 @@ namespace visualization {
   void initWndGrid();
   void InitGL(int Width, int Height);
   
+
   void Draw2D();
   void Draw3D();
+#ifdef RUN_ECM_VIS
+  void Draw2D_ECV();
+#endif	// RUN_ECM_VIS
+
   
   void DrawGLScene();
   void ReSizeGLScene(int Width, int Height);
